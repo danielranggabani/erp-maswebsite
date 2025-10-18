@@ -1,176 +1,245 @@
-import { useAuth } from '@/lib/auth';
-import { useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
-import { Button } from '@/components/ui/button';
+import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { 
   Users, 
   FolderKanban, 
   FileText, 
   TrendingUp,
   PlusCircle,
-  Building2
+  ArrowUpRight,
+  ArrowDownRight
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function Dashboard() {
-  const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!loading && !user) {
-      navigate('/auth');
-    }
-  }, [user, loading, navigate]);
+  // Fetch stats
+  const { data: stats } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: async () => {
+      const [clients, projects, invoices, finances] = await Promise.all([
+        supabase.from('clients').select('id', { count: 'exact', head: true }),
+        supabase.from('projects').select('id, status', { count: 'exact' }),
+        supabase.from('invoices').select('amount, status').eq('status', 'menunggu_dp'),
+        supabase.from('finances').select('nominal, tipe').gte('tanggal', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]),
+      ]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted-foreground">Memuat...</p>
-      </div>
-    );
-  }
+      const totalClients = clients.count || 0;
+      const activeProjects = projects.data?.filter(p => !['selesai', 'launch'].includes(p.status)).length || 0;
+      const pendingInvoices = invoices.data?.reduce((sum, inv) => sum + Number(inv.amount), 0) || 0;
+      const revenue = finances.data?.filter(f => f.tipe === 'income').reduce((sum, f) => sum + Number(f.nominal), 0) || 0;
 
-  if (!user) {
-    return null;
-  }
+      return {
+        totalClients,
+        activeProjects,
+        pendingInvoices,
+        revenue,
+      };
+    },
+  });
+
+  // Mock chart data
+  const chartData = [
+    { date: 'Jan 24', value: 1200 },
+    { date: 'Jan 25', value: 1400 },
+    { date: 'Jan 26', value: 1100 },
+    { date: 'Jan 27', value: 1800 },
+    { date: 'Jan 28', value: 1600 },
+    { date: 'Jan 29', value: 2200 },
+    { date: 'Jan 30', value: 2100 },
+  ];
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-primary" />
-            <h1 className="text-xl font-bold">ERP Website Agency</h1>
-          </div>
-          <Button onClick={() => signOut()} variant="outline">
-            Logout
-          </Button>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold mb-2">Selamat Datang! 👋</h2>
+    <DashboardLayout>
+      <div className="container mx-auto p-6 space-y-6">
+        {/* Page Header */}
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
           <p className="text-muted-foreground">
-            Kelola bisnis website agency Anda dengan mudah
+            Overview bisnis dan performa agency Anda
           </p>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Client</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">0</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                +0 dari bulan lalu
+              <div className="text-2xl font-bold">{stats?.totalClients || 0}</div>
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                <ArrowUpRight className="h-3 w-3 text-green-500" />
+                <span className="text-green-500">+12.5%</span> from last month
               </p>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Proyek Aktif</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
               <FolderKanban className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">0</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                0 dalam progress
+              <div className="text-2xl font-bold">{stats?.activeProjects || 0}</div>
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                <ArrowUpRight className="h-3 w-3 text-green-500" />
+                <span className="text-green-500">+4.8%</span> from last month
               </p>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Invoice Pending</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending Invoices</CardTitle>
               <FileText className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">Rp 0</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                0 invoice menunggu
+              <div className="text-2xl font-bold">
+                Rp {((stats?.pendingInvoices || 0) / 1000).toFixed(1)}K
+              </div>
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                <ArrowDownRight className="h-3 w-3 text-yellow-500" />
+                <span className="text-yellow-500">-2.4%</span> from last month
               </p>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Pendapatan Bulan Ini</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Revenue This Month</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">Rp 0</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                0% dari target
+              <div className="text-2xl font-bold">
+                Rp {((stats?.revenue || 0) / 1000000).toFixed(1)}M
+              </div>
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                <ArrowUpRight className="h-3 w-3 text-green-500" />
+                <span className="text-green-500">+18.2%</span> from last month
               </p>
             </CardContent>
           </Card>
         </div>
+
+        {/* Chart */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Revenue Overview</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Total for the last 7 days
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm">Last 7 days</Button>
+                <Button variant="outline" size="sm">Last 30 days</Button>
+                <Button variant="outline" size="sm">Last 3 months</Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis 
+                  dataKey="date" 
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={12}
+                />
+                <YAxis 
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={12}
+                />
+                <Tooltip 
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px',
+                  }}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="hsl(var(--primary))" 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#colorValue)" 
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/clients')}>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="w-5 h-5" />
-                Manajemen Client
+                Client Management
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-4">
-                Kelola data client dan riwayat komunikasi
+                Manage client data and communication history
               </p>
-              <Button className="w-full">
+              <Button className="w-full" size="sm">
                 <PlusCircle className="w-4 h-4 mr-2" />
-                Tambah Client Baru
+                Add New Client
               </Button>
             </CardContent>
           </Card>
 
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/projects')}>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-base">
                 <FolderKanban className="w-5 h-5" />
-                Proyek
+                Projects
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-4">
-                Pantau progress dan kelola proyek website
+                Track progress and manage website projects
               </p>
-              <Button className="w-full">
+              <Button className="w-full" size="sm">
                 <PlusCircle className="w-4 h-4 mr-2" />
-                Buat Proyek Baru
+                Create New Project
               </Button>
             </CardContent>
           </Card>
 
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/invoices')}>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-base">
                 <FileText className="w-5 h-5" />
-                Invoice & SPK
+                Invoices & SPK
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-4">
-                Generate invoice dan surat perjanjian kerja
+                Generate invoices and work agreements
               </p>
-              <Button className="w-full">
+              <Button className="w-full" size="sm">
                 <PlusCircle className="w-4 h-4 mr-2" />
-                Buat Invoice Baru
+                Create Invoice
               </Button>
             </CardContent>
           </Card>
         </div>
-      </main>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }
