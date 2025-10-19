@@ -11,13 +11,58 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PlusCircle, Search } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { PlusCircle, Search, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+import type { Database } from '@/integrations/supabase/types';
+
+type Client = Database['public']['Tables']['clients']['Row'];
+type ClientInsert = Database['public']['Tables']['clients']['Insert'];
+
+const statusColors = {
+  prospek: 'bg-blue-500',
+  negosiasi: 'bg-yellow-500',
+  deal: 'bg-green-500',
+  aktif: 'bg-emerald-500',
+  selesai: 'bg-gray-500',
+};
 
 export default function Clients() {
   const [search, setSearch] = useState('');
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [formData, setFormData] = useState<Partial<ClientInsert>>({
+    nama: '',
+    email: '',
+    phone: '',
+    whatsapp: '',
+    bisnis: '',
+    status: 'prospek',
+    catatan: '',
+  });
 
   const { data: clients, isLoading } = useQuery({
     queryKey: ['clients'],
@@ -32,20 +77,92 @@ export default function Clients() {
     },
   });
 
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-      prospek: 'outline',
-      negosiasi: 'secondary',
-      deal: 'default',
-      aktif: 'default',
-      selesai: 'secondary',
-    };
+  const createMutation = useMutation({
+    mutationFn: async (data: ClientInsert) => {
+      const { error } = await supabase.from('clients').insert([data]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      toast({ title: 'Client created successfully' });
+      setIsDialogOpen(false);
+      resetForm();
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
 
-    return (
-      <Badge variant={variants[status] || 'outline'}>
-        {status}
-      </Badge>
-    );
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<ClientInsert> }) => {
+      const { error } = await supabase.from('clients').update(data).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      toast({ title: 'Client updated successfully' });
+      setIsDialogOpen(false);
+      resetForm();
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('clients').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      toast({ title: 'Client deleted successfully' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingClient) {
+      updateMutation.mutate({ id: editingClient.id, data: formData });
+    } else {
+      createMutation.mutate(formData as ClientInsert);
+    }
+  };
+
+  const handleEdit = (client: Client) => {
+    setEditingClient(client);
+    setFormData({
+      nama: client.nama,
+      email: client.email,
+      phone: client.phone,
+      whatsapp: client.whatsapp,
+      bisnis: client.bisnis,
+      status: client.status,
+      catatan: client.catatan,
+    });
+    setIsDialogOpen(true);
+  };
+
+  const handleDelete = (id: string) => {
+    if (confirm('Are you sure you want to delete this client?')) {
+      deleteMutation.mutate(id);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      nama: '',
+      email: '',
+      phone: '',
+      whatsapp: '',
+      bisnis: '',
+      status: 'prospek',
+      catatan: '',
+    });
+    setEditingClient(null);
   };
 
   const filteredClients = clients?.filter(client => 
@@ -65,10 +182,109 @@ export default function Clients() {
               Manage your client database and relationships
             </p>
           </div>
-          <Button>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Add Client
-          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) resetForm();
+          }}>
+            <DialogTrigger asChild>
+              <Button>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Add Client
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>{editingClient ? 'Edit Client' : 'Add New Client'}</DialogTitle>
+                <DialogDescription>
+                  {editingClient ? 'Update client information' : 'Enter client details to add to your CRM'}
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSubmit}>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="nama">Name *</Label>
+                      <Input
+                        id="nama"
+                        value={formData.nama}
+                        onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={formData.email || ''}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone</Label>
+                      <Input
+                        id="phone"
+                        value={formData.phone || ''}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="whatsapp">WhatsApp</Label>
+                      <Input
+                        id="whatsapp"
+                        value={formData.whatsapp || ''}
+                        onChange={(e) => setFormData({ ...formData, whatsapp: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bisnis">Business</Label>
+                      <Input
+                        id="bisnis"
+                        value={formData.bisnis || ''}
+                        onChange={(e) => setFormData({ ...formData, bisnis: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="status">Status</Label>
+                      <Select
+                        value={formData.status}
+                        onValueChange={(value) => setFormData({ ...formData, status: value as any })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="prospek">Prospek</SelectItem>
+                          <SelectItem value="negosiasi">Negosiasi</SelectItem>
+                          <SelectItem value="deal">Deal</SelectItem>
+                          <SelectItem value="aktif">Aktif</SelectItem>
+                          <SelectItem value="selesai">Selesai</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="catatan">Notes</Label>
+                    <Textarea
+                      id="catatan"
+                      value={formData.catatan || ''}
+                      onChange={(e) => setFormData({ ...formData, catatan: e.target.value })}
+                      rows={3}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="submit">
+                    {editingClient ? 'Update Client' : 'Add Client'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Search and Filter */}
@@ -116,10 +332,28 @@ export default function Clients() {
                         <TableCell>{client.email || '-'}</TableCell>
                         <TableCell>{client.whatsapp || client.phone || '-'}</TableCell>
                         <TableCell>{client.bisnis || '-'}</TableCell>
-                        <TableCell>{getStatusBadge(client.status)}</TableCell>
+                        <TableCell>
+                          <Badge className={statusColors[client.status || 'prospek']}>
+                            {client.status}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="sm">View</Button>
-                          <Button variant="ghost" size="sm">Edit</Button>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(client)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(client.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
