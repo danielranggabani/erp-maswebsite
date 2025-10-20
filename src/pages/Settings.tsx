@@ -1,139 +1,199 @@
 import DashboardLayout from '@/components/layout/DashboardLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Building2, Upload, User } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Building2, Save } from "lucide-react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { Database } from "@/integrations/supabase/types";
+
+type Company = Database['public']['Tables']['companies']['Row'];
 
 export default function Settings() {
+  const [formData, setFormData] = useState<Partial<Company>>({
+    nama: "",
+    npwp: "",
+    alamat: "",
+    rekening: "",
+    logo_url: "",
+    signature_url: ""
+  });
+
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: company, isLoading } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+      
+      if (error) throw error;
+      return data as Company | null;
+    }
+  });
+
+  useEffect(() => {
+    if (company) {
+      setFormData({
+        nama: company.nama,
+        npwp: company.npwp || "",
+        alamat: company.alamat || "",
+        rekening: company.rekening || "",
+        logo_url: company.logo_url || "",
+        signature_url: company.signature_url || ""
+      });
+    }
+  }, [company]);
+
+  const updateMutation = useMutation({
+    mutationFn: async (updates: any) => {
+      if (company?.id) {
+        const { data, error } = await supabase
+          .from('companies')
+          .update(updates)
+          .eq('id', company.id)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase
+          .from('companies')
+          .insert(updates)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        return data;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['company'] });
+      toast({ title: "Pengaturan berhasil disimpan" });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    updateMutation.mutate(formData);
+  };
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold">Pengaturan</h1>
+          <p>Loading...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout>
-      <div className="container mx-auto p-6 space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Settings</h2>
-          <p className="text-muted-foreground">
-            Manage company settings and configurations
-          </p>
+      <div className="space-y-6">
+        <div className="flex items-center gap-2">
+          <Building2 className="h-8 w-8" />
+          <h1 className="text-3xl font-bold">Pengaturan Perusahaan</h1>
         </div>
 
-        <Tabs defaultValue="company" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="company">Company Info</TabsTrigger>
-            <TabsTrigger value="branding">Branding</TabsTrigger>
-            <TabsTrigger value="profile">Profile</TabsTrigger>
-          </TabsList>
+        <Card>
+          <CardHeader>
+            <CardTitle>Informasi Perusahaan</CardTitle>
+            <CardDescription>
+              Data perusahaan akan digunakan di SPK dan Invoice
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <Label htmlFor="nama">Nama Perusahaan</Label>
+                <Input
+                  id="nama"
+                  value={formData.nama}
+                  onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
+                  required
+                />
+              </div>
 
-          <TabsContent value="company" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Building2 className="h-5 w-5" />
-                  Company Information
-                </CardTitle>
-                <CardDescription>
-                  Update your company details for invoices and SPK
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="company-name">Company Name</Label>
-                  <Input id="company-name" placeholder="PT Example Indonesia" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="company-npwp">NPWP</Label>
-                  <Input id="company-npwp" placeholder="00.000.000.0-000.000" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="company-address">Address</Label>
-                  <Textarea id="company-address" placeholder="Company address..." />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="company-bank">Bank Account</Label>
-                  <Input id="company-bank" placeholder="BCA - 1234567890" />
-                </div>
-                <Button>Save Changes</Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              <div>
+                <Label htmlFor="npwp">NPWP</Label>
+                <Input
+                  id="npwp"
+                  value={formData.npwp}
+                  onChange={(e) => setFormData({ ...formData, npwp: e.target.value })}
+                  placeholder="00.000.000.0-000.000"
+                />
+              </div>
 
-          <TabsContent value="branding" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Company Logo & Signature</CardTitle>
-                <CardDescription>
-                  Upload logo for SPK headers and digital signature
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label>Company Logo</Label>
-                  <div className="border-2 border-dashed rounded-lg p-8 text-center">
-                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground mb-2">
-                      Click to upload or drag and drop
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      PNG, JPG up to 3MB
-                    </p>
-                    <Button variant="outline" size="sm" className="mt-4">
-                      Choose File
-                    </Button>
-                  </div>
-                </div>
+              <div>
+                <Label htmlFor="alamat">Alamat</Label>
+                <Textarea
+                  id="alamat"
+                  value={formData.alamat}
+                  onChange={(e) => setFormData({ ...formData, alamat: e.target.value })}
+                  rows={3}
+                />
+              </div>
 
-                <div className="space-y-2">
-                  <Label>Digital Signature</Label>
-                  <div className="border-2 border-dashed rounded-lg p-8 text-center">
-                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground mb-2">
-                      Upload transparent PNG signature
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      PNG only, transparent background recommended
-                    </p>
-                    <Button variant="outline" size="sm" className="mt-4">
-                      Choose File
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              <div>
+                <Label htmlFor="rekening">Nomor Rekening</Label>
+                <Input
+                  id="rekening"
+                  value={formData.rekening}
+                  onChange={(e) => setFormData({ ...formData, rekening: e.target.value })}
+                  placeholder="Bank BCA - 1234567890 a.n. PT Example"
+                />
+              </div>
 
-          <TabsContent value="profile" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  Personal Profile
-                </CardTitle>
-                <CardDescription>
-                  Update your personal information
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="full-name">Full Name</Label>
-                  <Input id="full-name" placeholder="John Doe" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" placeholder="john@example.com" disabled />
-                  <p className="text-xs text-muted-foreground">
-                    Email cannot be changed
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input id="phone" placeholder="+62 812 3456 7890" />
-                </div>
-                <Button>Update Profile</Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              <div className="flex justify-end">
+                <Button type="submit" disabled={updateMutation.isPending}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {updateMutation.isPending ? "Menyimpan..." : "Simpan Perubahan"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Logo & Tanda Tangan</CardTitle>
+            <CardDescription>
+              Upload logo dan tanda tangan digital untuk SPK (Coming Soon)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div>
+                <Label>Logo Perusahaan (.png/.jpg)</Label>
+                <Input type="file" accept="image/png,image/jpeg" disabled />
+                <p className="text-sm text-muted-foreground mt-1">
+                  Fitur upload akan segera tersedia
+                </p>
+              </div>
+              <div>
+                <Label>Tanda Tangan Digital (.png transparan)</Label>
+                <Input type="file" accept="image/png" disabled />
+                <p className="text-sm text-muted-foreground mt-1">
+                  Fitur upload akan segera tersedia
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   );
