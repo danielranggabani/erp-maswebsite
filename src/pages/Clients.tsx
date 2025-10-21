@@ -1,6 +1,6 @@
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -29,15 +29,19 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { PlusCircle, Search, Pencil, Trash2 } from 'lucide-react';
+import { PlusCircle, Search, Pencil, Trash2, MessageCircle, Calendar } from 'lucide-react';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import type { Database } from '@/integrations/supabase/types';
+import { Separator } from '@/components/ui/separator';
 
+// Definisikan Tipe Data dari Supabase
 type Client = Database['public']['Tables']['clients']['Row'];
 type ClientInsert = Database['public']['Tables']['clients']['Insert'];
+type Communication = Database['public']['Tables']['communications']['Row'];
+type CommunicationInsert = Database['public']['Tables']['communications']['Insert'];
 
 const statusColors = {
   prospek: 'bg-blue-500',
@@ -47,14 +51,7 @@ const statusColors = {
   selesai: 'bg-gray-500',
 };
 
-export default function Clients() {
-  const [search, setSearch] = useState('');
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-
-  const [formData, setFormData] = useState<Partial<ClientInsert>>({
+const initialClientFormData: Partial<ClientInsert> = {
     nama: '',
     email: '',
     phone: '',
@@ -62,8 +59,52 @@ export default function Clients() {
     bisnis: '',
     status: 'prospek',
     catatan: '',
+}
+
+// ======================= HOOKS UNTUK RIWAYAT KOMUNIKASI =======================
+const useCommunicationMutations = (clientId: string | null) => {
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
+
+    const invalidate = () => queryClient.invalidateQueries({ queryKey: ['client-communications', clientId] });
+    
+    const createCommunicationMutation = useMutation({
+        mutationFn: async (data: CommunicationInsert) => {
+            const { error } = await supabase.from('communications').insert([data]);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            invalidate();
+            toast({ title: 'Komunikasi berhasil ditambahkan' });
+        },
+        onError: (error: any) => {
+            toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        },
+    });
+
+    return { createCommunicationMutation };
+}
+
+// ======================= KOMPONEN UTAMA CLIENTS =======================
+export default function Clients() {
+  const [search, setSearch] = useState('');
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [clientFormData, setClientFormData] = useState<Partial<ClientInsert>>(initialClientFormData);
+
+  // Communication History State
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const [selectedClientForHistory, setSelectedClientForHistory] = useState<Client | null>(null);
+  const [newCommunication, setNewCommunication] = useState<Partial<CommunicationInsert>>({
+    subject: '',
+    notes: '',
+    follow_up_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10), 
   });
 
+  // Query Utama untuk Data Klien
   const { data: clients, isLoading } = useQuery({
     queryKey: ['clients'],
     queryFn: async () => {
@@ -75,8 +116,33 @@ export default function Clients() {
       if (error) throw error;
       return data;
     },
+    // Menampilkan pesan error di konsol jika query gagal
+    onError: (error) => {
+        console.error("Client Fetch Error:", error);
+        toast({ title: "Error", description: "Gagal memuat data klien (Cek RLS).", variant: "destructive" });
+    }
+  });
+  
+  // Query untuk Riwayat Komunikasi Klien yang dipilih
+  const { data: communications = [], isLoading: isLoadingCommunications } = useQuery({
+      queryKey: ['client-communications', selectedClientForHistory?.id],
+      queryFn: async () => {
+          if (!selectedClientForHistory?.id) return [];
+          const { data, error } = await supabase
+              .from('communications')
+              .select('*')
+              .eq('client_id', selectedClientForHistory.id)
+              .order('created_at', { ascending: false });
+          if (error) throw error;
+          return data as Communication[];
+      },
+      enabled: !!selectedClientForHistory?.id && isHistoryDialogOpen,
   });
 
+  const { createCommunicationMutation } = useCommunicationMutations(selectedClientForHistory?.id || null);
+
+
+  // --- MUTASI UTAMA CLIENTS ---
   const createMutation = useMutation({
     mutationFn: async (data: ClientInsert) => {
       const { error } = await supabase.from('clients').insert([data]);
@@ -86,7 +152,7 @@ export default function Clients() {
       queryClient.invalidateQueries({ queryKey: ['clients'] });
       toast({ title: 'Client created successfully' });
       setIsDialogOpen(false);
-      resetForm();
+      resetClientForm();
     },
     onError: (error: any) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -102,7 +168,7 @@ export default function Clients() {
       queryClient.invalidateQueries({ queryKey: ['clients'] });
       toast({ title: 'Client updated successfully' });
       setIsDialogOpen(false);
-      resetForm();
+      resetClientForm();
     },
     onError: (error: any) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -122,19 +188,20 @@ export default function Clients() {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
-
+  
+  
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingClient) {
-      updateMutation.mutate({ id: editingClient.id, data: formData });
+      updateMutation.mutate({ id: editingClient.id, data: clientFormData });
     } else {
-      createMutation.mutate(formData as ClientInsert);
+      createMutation.mutate(clientFormData as ClientInsert);
     }
   };
 
   const handleEdit = (client: Client) => {
     setEditingClient(client);
-    setFormData({
+    setClientFormData({
       nama: client.nama,
       email: client.email,
       phone: client.phone,
@@ -152,18 +219,52 @@ export default function Clients() {
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      nama: '',
-      email: '',
-      phone: '',
-      whatsapp: '',
-      bisnis: '',
-      status: 'prospek',
-      catatan: '',
-    });
+  const resetClientForm = () => {
+    setClientFormData(initialClientFormData);
     setEditingClient(null);
   };
+  
+  // --- COMMUNICATION HISTORY HANDLERS ---
+  const openHistoryDialog = (client: Client) => {
+      setSelectedClientForHistory(client);
+      setIsHistoryDialogOpen(true);
+      resetCommunicationForm();
+  }
+  
+  const resetCommunicationForm = () => {
+      setNewCommunication({
+          subject: '',
+          notes: '',
+          follow_up_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10), 
+      });
+  }
+  
+  const handleAddCommunication = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!selectedClientForHistory?.id || !newCommunication.notes) {
+          toast({ title: 'Error', description: 'Catatan harus diisi.', variant: 'destructive' });
+          return;
+      }
+      
+      const newRecord: CommunicationInsert = {
+          client_id: selectedClientForHistory.id,
+          subject: newCommunication.subject || null,
+          notes: newCommunication.notes,
+          follow_up_date: newCommunication.follow_up_date || null,
+      };
+      
+      createCommunicationMutation.mutate(newRecord, {
+          onSuccess: () => {
+              resetCommunicationForm();
+              // Update status klien ke 'negosiasi' jika sebelumnya 'prospek'
+              if (selectedClientForHistory.status === 'prospek') {
+                  updateMutation.mutate({ id: selectedClientForHistory.id, data: { status: 'negosiasi' } });
+              }
+          }
+      });
+  }
+  // --- END COMMUNICATION HISTORY HANDLERS ---
+
 
   const filteredClients = clients?.filter(client => 
     client.nama?.toLowerCase().includes(search.toLowerCase()) ||
@@ -174,7 +275,7 @@ export default function Clients() {
   return (
     <DashboardLayout>
       <div className="container mx-auto p-6 space-y-6">
-        {/* Header */}
+        {/* Header (Client CRUD Dialog) */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold tracking-tight">Clients</h2>
@@ -184,7 +285,7 @@ export default function Clients() {
           </div>
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
-            if (!open) resetForm();
+            if (!open) resetClientForm();
           }}>
             <DialogTrigger asChild>
               <Button>
@@ -206,8 +307,8 @@ export default function Clients() {
                       <Label htmlFor="nama">Name *</Label>
                       <Input
                         id="nama"
-                        value={formData.nama}
-                        onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
+                        value={clientFormData.nama}
+                        onChange={(e) => setClientFormData({ ...clientFormData, nama: e.target.value })}
                         required
                       />
                     </div>
@@ -216,8 +317,8 @@ export default function Clients() {
                       <Input
                         id="email"
                         type="email"
-                        value={formData.email || ''}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        value={clientFormData.email || ''}
+                        onChange={(e) => setClientFormData({ ...clientFormData, email: e.target.value })}
                       />
                     </div>
                   </div>
@@ -226,16 +327,16 @@ export default function Clients() {
                       <Label htmlFor="phone">Phone</Label>
                       <Input
                         id="phone"
-                        value={formData.phone || ''}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        value={clientFormData.phone || ''}
+                        onChange={(e) => setClientFormData({ ...clientFormData, phone: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="whatsapp">WhatsApp</Label>
                       <Input
                         id="whatsapp"
-                        value={formData.whatsapp || ''}
-                        onChange={(e) => setFormData({ ...formData, whatsapp: e.target.value })}
+                        value={clientFormData.whatsapp || ''}
+                        onChange={(e) => setClientFormData({ ...clientFormData, whatsapp: e.target.value })}
                       />
                     </div>
                   </div>
@@ -244,15 +345,15 @@ export default function Clients() {
                       <Label htmlFor="bisnis">Business</Label>
                       <Input
                         id="bisnis"
-                        value={formData.bisnis || ''}
-                        onChange={(e) => setFormData({ ...formData, bisnis: e.target.value })}
+                        value={clientFormData.bisnis || ''}
+                        onChange={(e) => setClientFormData({ ...clientFormData, bisnis: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="status">Status</Label>
                       <Select
-                        value={formData.status}
-                        onValueChange={(value) => setFormData({ ...formData, status: value as any })}
+                        value={clientFormData.status}
+                        onValueChange={(value) => setClientFormData({ ...clientFormData, status: value as any })}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -271,14 +372,14 @@ export default function Clients() {
                     <Label htmlFor="catatan">Notes</Label>
                     <Textarea
                       id="catatan"
-                      value={formData.catatan || ''}
-                      onChange={(e) => setFormData({ ...formData, catatan: e.target.value })}
+                      value={clientFormData.catatan || ''}
+                      onChange={(e) => setClientFormData({ ...clientFormData, catatan: e.target.value })}
                       rows={3}
                     />
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button type="submit">
+                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
                     {editingClient ? 'Update Client' : 'Add Client'}
                   </Button>
                 </DialogFooter>
@@ -287,7 +388,7 @@ export default function Clients() {
           </Dialog>
         </div>
 
-        {/* Search and Filter */}
+        {/* Client List */}
         <Card>
           <CardHeader>
             <CardTitle>Client List</CardTitle>
@@ -339,10 +440,21 @@ export default function Clients() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                            {/* Riwayat Komunikasi Button */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openHistoryDialog(client)}
+                              title="Riwayat Komunikasi"
+                            >
+                              <MessageCircle className="h-4 w-4 text-blue-500" />
+                            </Button>
+                            
                             <Button
                               variant="ghost"
                               size="icon"
                               onClick={() => handleEdit(client)}
+                              title="Edit Client"
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -350,6 +462,7 @@ export default function Clients() {
                               variant="ghost"
                               size="icon"
                               onClick={() => handleDelete(client.id)}
+                              title="Hapus Client"
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -369,6 +482,106 @@ export default function Clients() {
             </div>
           </CardContent>
         </Card>
+        
+        
+        {/* COMMUNICATION HISTORY DIALOG (Modal) */}
+        <Dialog open={isHistoryDialogOpen} onOpenChange={(open) => {
+            setIsHistoryDialogOpen(open);
+            if (!open) setSelectedClientForHistory(null);
+        }}>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle>Riwayat Komunikasi</DialogTitle>
+                    <DialogDescription>
+                        {selectedClientForHistory?.nama} ({selectedClientForHistory?.bisnis})
+                    </DialogDescription>
+                </DialogHeader>
+                
+                <Separator className="my-2" />
+                
+                <div className="grid md:grid-cols-3 gap-6">
+                    {/* Input Komunikasi Baru */}
+                    <div className="md:col-span-1 space-y-4">
+                        <CardHeader className="p-0">
+                            <CardTitle className="text-lg">Tambah Catatan</CardTitle>
+                            <CardDescription>Catat interaksi dan rencana follow up.</CardDescription>
+                        </CardHeader>
+                        <form onSubmit={handleAddCommunication} className="space-y-3">
+                            <div className="space-y-1">
+                                <Label htmlFor="comms-subject">Subjek</Label>
+                                <Input
+                                    id="comms-subject"
+                                    value={newCommunication.subject || ''}
+                                    onChange={(e) => setNewCommunication({...newCommunication, subject: e.target.value})}
+                                    placeholder="Diskusi Harga / Follow Up DP"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label htmlFor="comms-notes">Catatan Komunikasi *</Label>
+                                <Textarea
+                                    id="comms-notes"
+                                    value={newCommunication.notes || ''}
+                                    onChange={(e) => setNewCommunication({...newCommunication, notes: e.target.value})}
+                                    rows={4}
+                                    required
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label htmlFor="comms-followup">Rencana Tindak Lanjut</Label>
+                                <Input
+                                    id="comms-followup"
+                                    type="date"
+                                    value={newCommunication.follow_up_date || ''}
+                                    onChange={(e) => setNewCommunication({...newCommunication, follow_up_date: e.target.value})}
+                                />
+                            </div>
+                            <Button 
+                                type="submit" 
+                                className="w-full"
+                                disabled={createCommunicationMutation.isPending || !newCommunication.notes}
+                            >
+                                <MessageCircle className="h-4 w-4 mr-2" /> Simpan Catatan
+                            </Button>
+                        </form>
+                    </div>
+                    
+                    {/* Riwayat Komunikasi */}
+                    <div className="md:col-span-2 space-y-4">
+                        <CardHeader className="p-0">
+                            <CardTitle className="text-lg">Riwayat ({communications.length})</CardTitle>
+                        </CardHeader>
+                        <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+                            {isLoadingCommunications ? (
+                                <p className="text-muted-foreground">Memuat riwayat...</p>
+                            ) : communications.length === 0 ? (
+                                <p className="text-muted-foreground">Belum ada riwayat komunikasi.</p>
+                            ) : (
+                                communications.map(comms => (
+                                    <div key={comms.id} className="border p-3 rounded-lg bg-secondary/30 space-y-1">
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span className="font-semibold text-foreground">{comms.subject || 'Catatan Umum'}</span>
+                                            <span className="text-right">{new Date(comms.created_at).toLocaleDateString('id-ID')}</span>
+                                        </div>
+                                        <p className="text-sm">{comms.notes}</p>
+                                        {comms.follow_up_date && (
+                                            <div className="flex items-center text-xs text-orange-600 pt-1">
+                                                <Calendar className="h-3 w-3 mr-1" />
+                                                Tindak Lanjut: {new Date(comms.follow_up_date).toLocaleDateString('id-ID')}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+                
+                <DialogFooter>
+                    <Button onClick={() => setIsHistoryDialogOpen(false)}>Tutup</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        
       </div>
     </DashboardLayout>
   );

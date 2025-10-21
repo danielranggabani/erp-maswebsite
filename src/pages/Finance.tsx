@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
+import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, DollarSign, FileText } from "lucide-react";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -126,6 +126,12 @@ export default function Finance() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Pastikan nominal tidak nol saat membuat transaksi baru
+    if (formData.nominal === 0 || !formData.nominal) {
+        toast({ title: "Error", description: "Nominal tidak boleh nol.", variant: "destructive" });
+        return;
+    }
+
     if (editingFinance) {
       updateMutation.mutate({ id: editingFinance.id, ...formData });
     } else {
@@ -159,6 +165,10 @@ export default function Finance() {
 
   const balance = totalIncome - totalExpense;
 
+  // LOGIKA BARU: PPH Final 0.5% dari Omzet (totalIncome)
+  const pphFinalRate = 0.005; // 0.5%
+  const pphFinalAmount = totalIncome * pphFinalRate;
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -169,7 +179,7 @@ export default function Finance() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="container mx-auto p-6 space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold">Keuangan</h1>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -212,7 +222,8 @@ export default function Finance() {
                       <SelectItem value="operasional">Operasional</SelectItem>
                       <SelectItem value="gaji">Gaji</SelectItem>
                       <SelectItem value="pajak">Pajak</SelectItem>
-                      <SelectItem value="investasi">Investasi</SelectItem>
+                      <SelectItem value="hosting">Hosting</SelectItem>
+                      <SelectItem value="iklan">Iklan</SelectItem>
                       <SelectItem value="lainnya">Lainnya</SelectItem>
                     </SelectContent>
                   </Select>
@@ -250,7 +261,7 @@ export default function Finance() {
                   <Button type="button" variant="outline" onClick={resetForm}>
                     Batal
                   </Button>
-                  <Button type="submit">
+                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
                     {editingFinance ? "Update" : "Simpan"}
                   </Button>
                 </div>
@@ -259,7 +270,8 @@ export default function Finance() {
           </Dialog>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        {/* MENGUBAH GRID MENJADI 4 KOLOM */}
+        <div className="grid gap-4 md:grid-cols-4"> 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Pemasukan</CardTitle>
@@ -280,13 +292,27 @@ export default function Finance() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Saldo</CardTitle>
+              <CardTitle className="text-sm font-medium">Saldo Bersih</CardTitle>
               <DollarSign className="h-4 w-4" />
             </CardHeader>
             <CardContent>
               <div className={`text-2xl font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {formatCurrency(balance)}
               </div>
+            </CardContent>
+          </Card>
+          
+          {/* KARTU BARU: SIMULASI PAJAK PPh FINAL 0.5% */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Simulasi PPh Final (0.5%)</CardTitle>
+              <FileText className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">{formatCurrency(pphFinalAmount)}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Dari Omzet {formatCurrency(totalIncome)}
+              </p>
             </CardContent>
           </Card>
         </div>

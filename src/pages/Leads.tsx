@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronRight, DollarSign } from "lucide-react";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -20,12 +20,41 @@ type Lead = Database['public']['Tables']['leads']['Row'];
 type LeadInsert = Database['public']['Tables']['leads']['Insert'];
 type LeadStatus = Database['public']['Enums']['lead_status'];
 type LeadSource = Database['public']['Enums']['lead_source'];
+type Package = Database['public']['Tables']['packages']['Row']; // Import Package type
+
+// Query untuk mengambil daftar paket aktif
+const usePackagesQuery = () => useQuery({
+    queryKey: ['packages-active'],
+    queryFn: async () => {
+        const { data, error } = await supabase.from('packages').select('*').eq('is_active', true);
+        if (error) throw error;
+        return data as Package[];
+    }
+});
+
+const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0
+    }).format(amount);
+};
+
 
 export default function Leads() {
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // State untuk Konversi
+  const [isConvertDialogOpen, setIsConvertDialogOpen] = useState(false);
+  const [convertingLead, setConvertingLead] = useState<Lead | null>(null);
+  const [convertFormData, setConvertFormData] = useState({
+      packageName: '',
+      projectPrice: '',
+  });
+
   const [formData, setFormData] = useState<Partial<LeadInsert>>({
     nama: "",
     kontak: "",
@@ -36,6 +65,7 @@ export default function Leads() {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { data: packages = [] } = usePackagesQuery(); // Ambil data packages
 
   const { data: leads = [], isLoading } = useQuery({
     queryKey: ['leads'],
@@ -112,6 +142,62 @@ export default function Leads() {
     }
   });
 
+  // MUTASI UNTUK KONVERSI LEAD BARU
+  const convertMutation = useMutation({
+    mutationFn: async () => {
+        if (!convertingLead || !convertFormData.packageName || parseFloat(convertFormData.projectPrice) <= 0) {
+            throw new Error("Data konversi tidak lengkap atau harga tidak valid.");
+        }
+
+        // 1. Ciptakan Client baru
+        const { data: clientData, error: clientError } = await supabase.from('clients').insert({
+            nama: convertingLead.nama,
+            email: convertingLead.kontak.includes('@') ? convertingLead.kontak : null,
+            whatsapp: !convertingLead.kontak.includes('@') ? convertingLead.kontak : null,
+            status: 'deal', 
+            catatan: `Dikonversi dari Lead. Sumber: ${convertingLead.sumber}`,
+        }).select().single();
+
+        if (clientError) throw clientError;
+
+        // 2. Ciptakan Project baru
+        const { data: projectData, error: projectError } = await supabase.from('projects').insert({
+            nama_proyek: `Proyek ${convertingLead.nama}`,
+            client_id: clientData.id,
+            package_id: convertFormData.packageName,
+            harga: parseFloat(convertFormData.projectPrice),
+            status: 'briefing',
+            ruang_lingkup: `Proyek website berdasarkan paket yang dipilih: ${packages.find(p => p.id === convertFormData.packageName)?.nama}.`,
+            estimasi_hari: packages.find(p => p.id === convertFormData.packageName)?.estimasi_hari || 7,
+        }).select().single();
+
+        if (projectError) throw projectError;
+
+        // 3. Update Status Lead menjadi 'closing' dan hubungkan ke client_id
+        const { error: leadUpdateError } = await supabase.from('leads').update({
+            status: 'closing' as LeadStatus,
+            client_id: clientData.id,
+            converted_at: new Date().toISOString(),
+        }).eq('id', convertingLead.id);
+
+        if (leadUpdateError) throw leadUpdateError;
+
+        return { client: clientData, project: projectData };
+    },
+    onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['leads'] });
+        queryClient.invalidateQueries({ queryKey: ['clients'] });
+        queryClient.invalidateQueries({ queryKey: ['projects'] });
+        toast({ title: "Konversi Berhasil!", description: `Lead ${convertingLead?.nama} telah menjadi Klien dan Proyek baru.` });
+        setIsConvertDialogOpen(false);
+        setConvertingLead(null);
+    },
+    onError: (error: any) => {
+        toast({ title: "Error Konversi", description: error.message, variant: "destructive" });
+    }
+  });
+
+
   const resetForm = () => {
     setFormData({
       nama: "",
@@ -144,6 +230,26 @@ export default function Leads() {
     });
     setIsDialogOpen(true);
   };
+  
+  // Handler untuk Konversi Lead
+  const handleConvertLead = (lead: Lead) => {
+      setConvertingLead(lead);
+      setIsConvertDialogOpen(true);
+      // Set nilai default form konversi
+      setConvertFormData({
+          packageName: packages.length > 0 ? packages[0].id! : '',
+          projectPrice: '5000000', 
+      });
+  };
+  
+  const handlePackageChange = (packageId: string) => {
+      const pkg = packages.find(p => p.id === packageId);
+      setConvertFormData({
+          packageName: packageId,
+          projectPrice: pkg ? String(pkg.harga) : '5000000',
+      });
+  }
+
 
   const filteredLeads = leads.filter(lead =>
     lead.nama.toLowerCase().includes(search.toLowerCase()) ||
@@ -167,7 +273,7 @@ export default function Leads() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="container mx-auto p-6 space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold">Lead Management</h1>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -250,7 +356,7 @@ export default function Leads() {
                   <Button type="button" variant="outline" onClick={resetForm}>
                     Batal
                   </Button>
-                  <Button type="submit">
+                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
                     {editingLead ? "Update" : "Simpan"}
                   </Button>
                 </div>
@@ -294,6 +400,19 @@ export default function Leads() {
                       <TableCell className="max-w-xs truncate">{lead.catatan}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
+                            {/* Tombol Konversi (Hanya muncul jika status belum Closing/Gagal) */}
+                            {lead.status !== 'closing' && lead.status !== 'gagal' && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleConvertLead(lead)}
+                                    title="Convert to Client & Project"
+                                    disabled={convertMutation.isPending}
+                                >
+                                    <ChevronRight className="h-4 w-4 mr-1" /> Convert
+                                </Button>
+                            )}
+
                           <Button
                             variant="ghost"
                             size="icon"
@@ -317,6 +436,67 @@ export default function Leads() {
             )}
           </CardContent>
         </Card>
+
+        {/* DIALOG KONVERSI LEAD */}
+        <Dialog open={isConvertDialogOpen} onOpenChange={setIsConvertDialogOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Konversi Lead ke Proyek</DialogTitle>
+                </DialogHeader>
+                <form 
+                    onSubmit={(e) => { 
+                        e.preventDefault(); 
+                        if (convertingLead) convertMutation.mutate(convertingLead!.id); 
+                    }} 
+                    className="space-y-4"
+                >
+                    <p className="text-sm">Konversi **{convertingLead?.nama}** menjadi Klien baru dan buatkan Proyek pertamanya. </p>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="package">Pilih Paket Website *</Label>
+                        <Select required value={convertFormData.packageName} onValueChange={handlePackageChange}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Pilih paket" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {packages.length === 0 && <SelectItem value="" disabled>No Active Packages</SelectItem>}
+                                {packages.map((pkg) => (
+                                    <SelectItem key={pkg.id} value={pkg.id!}>
+                                        {pkg.nama} ({formatCurrency(Number(pkg.harga))})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    
+                    <div className="space-y-2">
+                        <Label htmlFor="price">Harga Proyek</Label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                id="price"
+                                type="number"
+                                placeholder="Harga Proyek"
+                                className="pl-8"
+                                value={convertFormData.projectPrice}
+                                onChange={(e) => setConvertFormData({ ...convertFormData, projectPrice: e.target.value })}
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                        <Button type="button" variant="outline" onClick={() => setIsConvertDialogOpen(false)}>
+                            Batal
+                        </Button>
+                        <Button type="submit" disabled={convertMutation.isPending || !convertFormData.packageName}>
+                            {convertMutation.isPending ? 'Mengkonversi...' : 'Konversi & Buat Proyek'}
+                        </Button>
+                    </div>
+                </form>
+            </DialogContent>
+        </Dialog>
+
 
         <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
           <AlertDialogContent>
