@@ -21,10 +21,9 @@ import {
   Calendar, 
   DollarSign,
   ArrowRight,
-  FileText,
-  Copy 
+  FileText
 } from 'lucide-react'; 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // <-- IMPORT useRef
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { 
@@ -51,6 +50,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { generateUniqueNumber } from '@/lib/number-generator';
 import { Separator } from '@/components/ui/separator'; 
+import html2canvas from 'html2canvas'; // <-- GENERATOR
+import jsPDF from 'jspdf'; // <-- GENERATOR
 
 
 // ======================= TIPE DATA DENGAN JOIN =======================
@@ -87,26 +88,26 @@ const formatCurrency = (amount: number) => {
 };
 
 
-// --- KOMPONEN TEMPLATE INVOICE VIEW (STABIL) ---
+// --- KOMPONEN TEMPLATE INVOICE VIEW (STABIL DENGAN FORWARDREF) ---
 interface InvoiceViewProps {
   invoice: Invoice;
   company: Company | null;
 }
 
-const InvoiceView: React.FC<InvoiceViewProps> = ({ invoice, company }) => {
+const InvoiceView = React.forwardRef<HTMLDivElement, InvoiceViewProps>(({ invoice, company }, ref) => {
     const total = invoice.amount || 0;
-    const clientName = invoice.clients?.nama || 'N/A Client';
-    const clientBusiness = invoice.clients?.bisnis || 'N/A Business';
+    const clientName = invoice.clients?.nama || 'Klien Tidak Tersedia';
+    const clientBusiness = invoice.clients?.bisnis || 'Bisnis Umum';
     const projectName = invoice.projects?.nama_proyek || 'Proyek Umum';
-    const companyName = company?.nama || 'N/A Agency';
+    const companyName = company?.nama || 'WebForge Agency';
     const companyAddress = company?.alamat || 'Alamat Perusahaan';
     const companyAccount = company?.rekening || 'Rekening Perusahaan';
     const logoUrl = company?.logo_url;
     
     // Perhitungan status pembayaran (simulasi)
     const isLunas = invoice.status === 'lunas';
-    const paidAmount = isLunas ? total : 0; // Total yang dibayar 0 jika belum lunas
-    const balanceDue = total - paidAmount; // Balance Due adalah Total jika belum lunas
+    const paidAmount = isLunas ? total : 0; 
+    const balanceDue = total - paidAmount; 
 
     const items = [
         { 
@@ -116,100 +117,111 @@ const InvoiceView: React.FC<InvoiceViewProps> = ({ invoice, company }) => {
     ];
 
     return (
-        <div className="p-0 space-y-6">
-            {/* HEADER (AD4TECH + LOGO) */}
-            <header className="flex justify-between items-start border-b-2 border-blue-600 pb-4">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-bold">{companyName}</h2>
-                    <p className="text-sm">{companyAddress}</p>
-                    <p className="text-sm">Email: <span className='text-blue-600'>admin@maswebsite.id</span></p>
-                </div>
-                <div className="flex flex-col items-end">
-                    <h1 className="text-3xl font-extrabold text-blue-600">INVOICE</h1>
-                    {/* Simulasikan Logo (sesuai request) */}
+        // FIX STYLING: Padding 10 (p-10) untuk margin A4 dan desain premium
+        <div ref={ref} id="invoice-to-capture" className="p-10 space-y-10 bg-white max-w-full"> 
+            
+            {/* HEADER (Desain Sesuai HTML Anda) */}
+            <header className="flex justify-between items-center text-white p-10" style={{ background: 'linear-gradient(135deg, #2563eb, #1e40af)' }}>
+                <div className="flex items-center space-x-4">
+                    {/* Logo (di-inverse warna agar terlihat putih di background biru) */}
                     {logoUrl && (
-                        <img src={logoUrl} alt="Logo Perusahaan" className="w-24 h-auto mt-2 object-contain" />
+                        <img src={logoUrl} alt="Logo Perusahaan" className="w-16 h-16 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
                     )}
+                    <div className="space-y-0.5">
+                        <h2 className="text-2xl font-extrabold" style={{letterSpacing: '0.5px'}}>{companyName}</h2>
+                        <p className="text-xs opacity-90" style={{margin: '2px 0'}}>{companyAddress}</p>
+                    </div>
+                </div>
+                <div className="text-right">
+                    <h1 className="text-5xl font-black tracking-tight" style={{fontWeight: 800, letterSpacing: '-1px'}}>INVOICE</h1>
+                    <p className="text-sm opacity-90 mt-1"># {invoice.invoice_number}</p>
                 </div>
             </header>
 
-            {/* BILLING INFO & DATES */}
-            <section className="grid grid-cols-3 text-sm border p-4 rounded-lg bg-gray-50">
-                <div className="col-span-2 space-y-1">
-                    <p className="font-bold border-b pb-1">Tagihan Kepada (Bill To)</p>
-                    <p className="font-semibold">{clientName}</p>
-                    <p className="text-xs">{clientBusiness}</p>
-                </div>
-                <div className="col-span-1 space-y-1 text-right">
-                    <p><strong>Invoice No:</strong> {invoice.invoice_number}</p>
-                    <p><strong>Invoice Date:</strong> {invoice.tanggal_terbit}</p>
-                    <p className={`font-bold ${invoice.status === 'overdue' ? 'text-red-700' : 'text-red-500'}`}>
-                        <strong>Due Date:</strong> {invoice.jatuh_tempo}
-                    </p>
-                </div>
-            </section>
-
-            {/* ITEM TABLE */}
-            <Table>
-                <TableHeader className="bg-blue-600">
-                    <TableRow className="border-b-blue-700">
-                        <TableHead className="text-white font-bold">Sl. Description</TableHead>
-                        <TableHead className="text-white text-right w-[15%] font-bold">Amount</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {items.map((item, index) => (
-                        <TableRow key={index}>
-                            <TableCell>{item.description}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(item.amount)}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
+            {/* BODY - BILLING & DATES */}
+            <div className="px-10 py-10 space-y-10"> {/* FIX: Padding di body untuk margin A4 */}
                 
-                <TableFooter>
-                    <TableRow className="bg-gray-100">
-                        <TableCell className="text-right font-bold">Subtotal</TableCell>
-                        <TableCell className="text-right font-bold">{formatCurrency(total)}</TableCell>
-                    </TableRow>
-                </TableFooter>
-            </Table>
-            
-            {/* PAYMENT SUMMARY */}
-            <div className="flex justify-end pt-4">
-                <Card className="w-full max-w-sm border-2">
-                    <CardContent className="p-4 space-y-2">
-                        <div className="flex justify-between font-bold text-lg">
-                            <span>Total Tagihan:</span>
+                <section className="flex justify-between mb-10 text-base">
+                    <div className="space-y-2">
+                        <p className="font-bold text-lg text-blue-900 border-b-2 border-blue-900/50 inline-block pb-1">Tagihan Kepada</p>
+                        <p className="font-bold text-base mt-2">{clientName}</p>
+                        <p className="text-sm text-gray-700">Bisnis: {clientBusiness}</p>
+                        <p className="text-sm text-gray-700">Alamat Klien Tidak Tersedia</p>
+                    </div>
+                    <div className="space-y-2 text-right">
+                        <p><strong>Invoice No:</strong> {invoice.invoice_number}</p>
+                        <p><strong>Tanggal Terbit:</strong> {invoice.tanggal_terbit}</p>
+                        <p className={`font-bold text-lg ${invoice.status === 'overdue' ? 'text-red-700' : 'text-orange-600'}`}>
+                            Jatuh Tempo: {invoice.jatuh_tempo}
+                        </p>
+                    </div>
+                </section>
+
+                {/* ITEM TABLE */}
+                <Table>
+                    <TableHeader className="bg-gray-100">
+                        <TableRow>
+                            <TableHead className="text-blue-900 font-bold text-base border-b-2 border-gray-300">Deskripsi Layanan</TableHead>
+                            <TableHead className="text-blue-900 text-right w-[15%] font-bold text-base border-b-2 border-gray-300">Jumlah (IDR)</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {items.map((item, index) => (
+                            <TableRow key={index} className="odd:bg-white even:bg-gray-50 border-b border-gray-200 hover:bg-gray-100">
+                                <TableCell className="text-base">{item.description}</TableCell>
+                                <TableCell className="text-right text-base">{formatCurrency(item.amount)}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                    
+                    <TableFooter className="bg-gray-100 mt-4 border-t-2 border-gray-300">
+                        <TableRow>
+                            <TableCell className="text-right font-bold text-lg text-blue-900 border-t-2 border-gray-300">TOTAL TAGIHAN</TableCell>
+                            <TableCell className="text-right font-bold text-lg text-blue-900 border-t-2 border-gray-300">{formatCurrency(total)}</TableCell>
+                        </TableRow>
+                    </TableFooter>
+                </Table>
+                
+                {/* TOTAL SUMMARY */}
+                <div className="flex justify-end mt-10">
+                    <div className="w-1/2 border border-blue-600 rounded-lg overflow-hidden">
+                        {/* Total Tagihan (Header) */}
+                        <div className="flex justify-between p-4 bg-gray-100 font-bold text-lg text-blue-900 border-b">
+                            <span>Total Tagihan</span>
                             <span>{formatCurrency(total)}</span>
                         </div>
-                        
-                        {/* Tampil hanya jika lunas */}
+
+                        {/* Sudah Dibayar (Jika Lunas) */}
                         {isLunas && (
-                            <div className="flex justify-between text-sm text-green-600">
-                                <span>Paid (Lunas):</span>
+                            <div className="flex justify-between p-4 text-base text-green-700 border-b border-gray-300">
+                                <span>Sudah Dibayar</span>
                                 <span>{formatCurrency(paidAmount)}</span>
                             </div>
                         )}
                         
-                        <Separator />
-                        <div className="flex justify-between text-xl font-extrabold">
-                            <span>Balance Due:</span>
-                            <span className="text-red-600">{formatCurrency(balanceDue)}</span>
+                        {/* SISA TAGIHAN (Balance Due) */}
+                        <div className={`flex justify-between p-4 font-extrabold text-xl ${isLunas ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-700'}`}>
+                            <span>SISA PEMBAYARAN</span>
+                            <span>{formatCurrency(balanceDue)}</span>
                         </div>
-                    </CardContent>
-                </Card>
-            </div>
+                    </div>
+                </div>
 
-            {/* INSTRUCTIONS */}
-            <section className="text-sm pt-4">
-                <p className="font-bold">Payment Instructions:</p>
-                <p>{companyAccount}</p>
-            </section>
+                {/* INSTRUCTIONS & FOOTER MESSAGE */}
+                <footer className="pt-10 border-t border-gray-300 mt-10">
+                    <div className="mb-4">
+                        <p className="font-bold text-blue-900 mb-1">Instruksi Pembayaran:</p>
+                        <p className="text-base text-gray-700">{companyAccount}</p>
+                    </div>
+                    <div className="text-center mt-8 text-gray-500">
+                        <p>Terima kasih telah mempercayakan proyek Anda kepada kami!</p>
+                    </div>
+                </footer>
+            </div>
         </div>
     );
-}
-
-// --- END KOMPONEN TEMPLATE INVOICE BARU ---
+});
+InvoiceView.displayName = 'InvoiceView';
 
 // ======================= DATA FETCHING & MUTATION =======================
 const useInvoiceData = () => {
@@ -258,7 +270,7 @@ const useInvoiceData = () => {
             if (error) throw error;
         },
         onSuccess: () => {
-            toast({ title: 'Success', description: 'Invoice berhasil dibuat.' });
+            toast({ title: 'Sukses', description: 'Invoice berhasil dibuat.' });
             queryClient.invalidateQueries({ queryKey: ['invoice-page-data'] });
         },
         onError: (error: any) => {
@@ -273,7 +285,7 @@ const useInvoiceData = () => {
             if (error) throw error;
         },
         onSuccess: () => {
-            toast({ title: 'Success', description: 'Invoice berhasil diupdate.' });
+            toast({ title: 'Sukses', description: 'Invoice berhasil diupdate.' });
             queryClient.invalidateQueries({ queryKey: ['invoice-page-data'] });
         },
         onError: (error: any) => {
@@ -288,7 +300,7 @@ const useInvoiceData = () => {
             if (error) throw error;
         },
         onSuccess: () => {
-            toast({ title: 'Success', description: 'Invoice berhasil dihapus.' });
+            toast({ title: 'Sukses', description: 'Invoice berhasil dihapus.' });
             queryClient.invalidateQueries({ queryKey: ['invoice-page-data'] });
         },
         onError: (error: any) => {
@@ -323,7 +335,7 @@ const useInvoiceData = () => {
     };
 };
 
-// ======================= COMPONENT UTAMA =======================
+// ======================= KOMPONEN UTAMA =======================
 export default function Invoices() {
   const { toast } = useToast();
   const { invoices, projects, company, isLoading, createMutation, updateMutation, deleteMutation, updateStatusMutation } = useInvoiceData();
@@ -337,6 +349,9 @@ export default function Invoices() {
   // State untuk Melihat Template
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [viewedInvoice, setViewedInvoice] = useState<Invoice | null>(null);
+  
+  // REF: Tangkap elemen HTML yang akan dikonversi menjadi PDF
+  const invoiceRef = useRef<HTMLDivElement>(null); 
 
   
   const [formData, setFormData] = useState({
@@ -367,7 +382,7 @@ export default function Invoices() {
     e.preventDefault();
     
     if (!formData.project_id) {
-        return toast({ title: 'Error', description: 'Please select a Project.', variant: 'destructive' });
+        return toast({ title: 'Error', description: 'Pilih Proyek terlebih dahulu.', variant: 'destructive' });
     }
     
     const invoiceNumber = editingInvoice ? editingInvoice.invoice_number : generateUniqueNumber('INV');
@@ -410,6 +425,49 @@ export default function Invoices() {
       setIsViewOpen(true);
   }
 
+  // --- FUNGSI GENERATE PDF CLIENT-SIDE (FINAL FIX) ---
+  const handleGenerateAndDownload = async () => {
+      const elementToPrint = document.getElementById('invoice-to-capture'); 
+      
+      if (!elementToPrint || !viewedInvoice) {
+          toast({ title: 'Error', description: 'Template invoice belum dimuat.', variant: 'destructive' });
+          return;
+      }
+
+      toast({ title: 'Processing', description: 'Memulai generate PDF di browser (Client-Side)...' });
+
+      try {
+          // Mengubah HTML menjadi Canvas (Gambar)
+          const canvas = await html2canvas(elementToPrint, { 
+              scale: 2, // Kualitas gambar lebih tinggi
+              useCORS: true, 
+              logging: false,
+              backgroundColor: '#ffffff'
+          });
+          const imgData = canvas.toDataURL('image/png');
+          
+          // Ukuran A4 (210 x 297 mm)
+          const pdf = new jsPDF('p', 'mm', 'a4');
+          const imgWidth = 210; 
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+          // Tambahkan gambar ke PDF
+          pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+
+          // Unduh file
+          pdf.save(`${viewedInvoice.invoice_number}.pdf`);
+          
+          toast({ title: 'Success', description: `Invoice ${viewedInvoice.invoice_number} berhasil diunduh!`, duration: 3000 });
+          
+      } catch (error) {
+          console.error("PDF Client Generation Error:", error);
+          toast({ title: 'Fatal Error', description: 'Gagal membuat file PDF. Cek F12 Console.', variant: 'destructive', duration: 5000 });
+      } finally {
+           setIsViewOpen(false);
+      }
+  };
+
+
   const handleDelete = () => {
     if (deleteId) {
         deleteMutation.mutate(deleteId);
@@ -448,132 +506,14 @@ export default function Invoices() {
      inv.clients?.nama?.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  // --- TEMPLATE VIEW LOGIC DITANAM DI SINI ---
-  const renderInvoicePreview = (invoice: Invoice, company: Company | null) => {
-    const total = invoice.amount || 0;
-    const clientName = invoice.clients?.nama || 'N/A Client';
-    const clientBusiness = invoice.clients?.bisnis || 'N/A Business';
-    const projectName = invoice.projects?.nama_proyek || 'Proyek Umum';
-    const companyName = company?.nama || 'N/A Agency';
-    const companyAddress = company?.alamat || 'Alamat Perusahaan';
-    const companyAccount = company?.rekening || 'Rekening Perusahaan';
-    const logoUrl = company?.logo_url;
-    
-    // Perhitungan status pembayaran (simulasi)
-    const isLunas = invoice.status === 'lunas';
-    const paidAmount = isLunas ? total : 0; // Total yang dibayar 0 jika belum lunas
-    const balanceDue = total - paidAmount; // Balance Due adalah Total jika belum lunas
-
-    const items = [
-        { 
-            description: `Jasa Pembuatan Website: ${projectName}`, 
-            amount: total 
-        }
-    ];
-
-    return (
-        <div className="p-0 space-y-6">
-            {/* HEADER (AD4TECH + LOGO) */}
-            <header className="flex justify-between items-start border-b-2 border-blue-600 pb-4">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-bold">{companyName}</h2>
-                    <p className="text-sm">{companyAddress}</p>
-                    <p className="text-sm">Email: <span className='text-blue-600'>admin@maswebsite.id</span></p>
-                </div>
-                <div className="flex flex-col items-end">
-                    <h1 className="text-3xl font-extrabold text-blue-600">INVOICE</h1>
-                    {/* Simulasikan Logo (sesuai request) */}
-                    {logoUrl && (
-                        <img src={logoUrl} alt="Logo Perusahaan" className="w-24 h-auto mt-2 object-contain" />
-                    )}
-                </div>
-            </header>
-
-            {/* BILLING INFO & DATES */}
-            <section className="grid grid-cols-3 text-sm border p-4 rounded-lg bg-gray-50">
-                <div className="col-span-2 space-y-1">
-                    <p className="font-bold border-b pb-1">Tagihan Kepada (Bill To)</p>
-                    <p className="font-semibold">{clientName}</p>
-                    <p className="text-xs">{clientBusiness}</p>
-                </div>
-                <div className="col-span-1 space-y-1 text-right">
-                    <p><strong>Invoice No:</strong> {invoice.invoice_number}</p>
-                    <p><strong>Invoice Date:</strong> {invoice.tanggal_terbit}</p>
-                    <p className={`font-bold ${invoice.status === 'overdue' ? 'text-red-700' : 'text-red-500'}`}>
-                        <strong>Due Date:</strong> {invoice.jatuh_tempo}
-                    </p>
-                </div>
-            </section>
-
-            {/* ITEM TABLE */}
-            <Table>
-                <TableHeader className="bg-blue-600">
-                    <TableRow className="border-b-blue-700">
-                        <TableHead className="text-white font-bold">Sl. Description</TableHead>
-                        <TableHead className="text-white text-right w-[15%] font-bold">Amount</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {items.map((item, index) => (
-                        <TableRow key={index}>
-                            <TableCell>{item.description}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(item.amount)}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-                
-                <TableFooter>
-                    <TableRow className="bg-gray-100">
-                        <TableCell className="text-right font-bold">Subtotal</TableCell>
-                        <TableCell className="text-right font-bold">{formatCurrency(total)}</TableCell>
-                    </TableRow>
-                </TableFooter>
-            </Table>
-            
-            {/* PAYMENT SUMMARY */}
-            <div className="flex justify-end pt-4">
-                <Card className="w-full max-w-sm border-2">
-                    <CardContent className="p-4 space-y-2">
-                        <div className="flex justify-between font-bold text-lg">
-                            <span>Total Tagihan:</span>
-                            <span>{formatCurrency(total)}</span>
-                        </div>
-                        
-                        {/* Tampil hanya jika lunas */}
-                        {isLunas && (
-                            <div className="flex justify-between text-sm text-green-600">
-                                <span>Paid (Lunas):</span>
-                                <span>{formatCurrency(paidAmount)}</span>
-                            </div>
-                        )}
-                        
-                        <Separator />
-                        <div className="flex justify-between text-xl font-extrabold">
-                            <span>Balance Due:</span>
-                            <span className="text-red-600">{formatCurrency(balanceDue)}</span>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* INSTRUCTIONS */}
-            <section className="text-sm pt-4">
-                <p className="font-bold">Payment Instructions:</p>
-                <p>{companyAccount}</p>
-            </section>
-        </div>
-    );
-  }
-  // --- END TEMPLATE VIEW LOGIC DITANAM DI SINI ---
-
   return (
     <DashboardLayout>
       <div className="container mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">Invoices</h2>
+            <h2 className="text-3xl font-bold tracking-tight">Invoice</h2>
             <p className="text-muted-foreground">
-              Manage billing and payment status.
+              Kelola tagihan dan status pembayaran.
             </p>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -585,23 +525,23 @@ export default function Invoices() {
             </DialogTrigger>
             <DialogContent className="max-w-xl">
               <DialogHeader>
-                <DialogTitle>{editingInvoice ? 'Edit Invoice' : 'Create New Invoice'}</DialogTitle>
+                <DialogTitle>{editingInvoice ? 'Edit Invoice' : 'Buat Invoice Baru'}</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 
                 {/* Project Selection */}
                 <div className="space-y-2">
-                    <Label htmlFor="project_id">Select Project (Required)</Label>
+                    <Label htmlFor="project_id">Pilih Proyek (Wajib)</Label>
                     <Select 
                       value={formData.project_id} 
                       onValueChange={(value) => setFormData({ ...formData, project_id: value })}
                       required
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a project" />
+                        <SelectValue placeholder="Pilih proyek" />
                       </SelectTrigger>
                       <SelectContent>
-                        {projects.length === 0 && <SelectItem value="" disabled>No Active Projects</SelectItem>}
+                        {projects.length === 0 && <SelectItem value="" disabled>Tidak ada Proyek Aktif</SelectItem>}
                         {projects.map((p) => (
                           <SelectItem key={p.id} value={p.id!}>{p.nama_proyek} ({p.clients?.nama})</SelectItem>
                         ))}
@@ -612,7 +552,7 @@ export default function Invoices() {
                 {/* Details */}
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                        <Label htmlFor="invoice_number">Invoice No (Auto-Generated)</Label>
+                        <Label htmlFor="invoice_number">Nomor Invoice (Auto)</Label>
                         <Input
                           id="invoice_number"
                           value={editingInvoice ? editingInvoice.invoice_number : generateUniqueNumber('INV')}
@@ -621,7 +561,7 @@ export default function Invoices() {
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="amount">Total Price (IDR)</Label>
+                        <Label htmlFor="amount">Total Harga (IDR)</Label>
                         <Input
                           id="amount"
                           type="number"
@@ -634,7 +574,7 @@ export default function Invoices() {
                 {/* Dates & Status */}
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="tanggal_terbit">Date Issued</Label>
+                    <Label htmlFor="tanggal_terbit">Tanggal Terbit</Label>
                     <Input
                       id="tanggal_terbit"
                       type="date"
@@ -644,7 +584,7 @@ export default function Invoices() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="jatuh_tempo">Due Date</Label>
+                    <Label htmlFor="jatuh_tempo">Jatuh Tempo</Label>
                     <Input
                       id="jatuh_tempo"
                       type="date"
@@ -671,10 +611,10 @@ export default function Invoices() {
                 
                 <div className="flex justify-end gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                    Cancel
+                    Batal
                   </Button>
                   <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending || !formData.project_id}>
-                    {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingInvoice ? 'Update Invoice' : 'Create Invoice')}
+                    {createMutation.isPending || updateMutation.isPending ? 'Memproses...' : (editingInvoice ? 'Update Invoice' : 'Buat Invoice')}
                   </Button>
                 </div>
               </form>
@@ -685,13 +625,13 @@ export default function Invoices() {
         {/* Invoice List */}
         <Card>
           <CardHeader>
-            <CardTitle>Invoice List ({invoices.length})</CardTitle>
+            <CardTitle>Daftar Invoice ({invoices.length})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="relative mb-4">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search invoice number or project..."
+                placeholder="Cari nomor invoice atau proyek..."
                 className="pl-8"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -702,23 +642,23 @@ export default function Invoices() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Invoice No.</TableHead>
-                    <TableHead>Project / Client</TableHead>
-                    <TableHead>Issued / Due Date</TableHead>
-                    <TableHead className='text-right'>Amount</TableHead>
+                    <TableHead>Nomor Invoice</TableHead>
+                    <TableHead>Proyek / Klien</TableHead>
+                    <TableHead>Terbit / Jatuh Tempo</TableHead>
+                    <TableHead className='text-right'>Jumlah</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center">Loading...</TableCell>
+                      <TableCell colSpan={6} className="text-center">Memuat...</TableCell>
                     </TableRow>
                   ) : filteredInvoices.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                        No invoices found.
+                        Tidak ada invoice ditemukan.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -737,7 +677,7 @@ export default function Invoices() {
                                   {invoice.tanggal_terbit} <ArrowRight className='w-3 h-3'/> {invoice.jatuh_tempo}
                               </div>
                           </TableCell>
-                          <TableCell className='font-medium text-right'>
+                          <TableCell className='text-right'>
                               {formatCurrency(invoice.amount || 0)}
                           </TableCell>
                           <TableCell>
@@ -825,19 +765,17 @@ export default function Invoices() {
                 </DialogHeader>
                 {/* Menampilkan komponen Invoice View yang sudah diperbaiki */}
                 {viewedInvoice && (
-                    <InvoiceView invoice={viewedInvoice} company={company} />
+                    <InvoiceView invoice={viewedInvoice} company={company} ref={invoiceRef} />
                 )}
                 <DialogFooter>
                      {/* Tombol Cetak/Download */}
-                     <a 
-                        href={viewedInvoice?.pdf_url || '#'} 
-                        download={`${viewedInvoice?.invoice_number}.pdf`}
-                        target="_blank" 
-                        rel="noopener noreferrer">
-                        <Button variant="secondary">
-                           <Download className="h-4 w-4 mr-2" /> Cetak ke PDF
-                        </Button>
-                    </a>
+                     <Button 
+                        variant="secondary"
+                        onClick={handleGenerateAndDownload} // <-- MEMICU GENERATE PDF ASLI CLIENT-SIDE
+                        disabled={!viewedInvoice}
+                    >
+                        <Download className="h-4 w-4 mr-2" /> Cetak ke PDF (Generate)
+                    </Button>
                     <Button variant="outline" onClick={() => setIsViewOpen(false)}>Tutup</Button>
                 </DialogFooter>
             </DialogContent>
