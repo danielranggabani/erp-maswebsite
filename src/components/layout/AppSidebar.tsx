@@ -1,6 +1,6 @@
 import { 
   LayoutDashboard, 
-  Users, 
+  Users, // Digunakan untuk Employment
   FolderKanban, 
   FileText, 
   TrendingUp,
@@ -9,7 +9,8 @@ import {
   Settings,
   FileCheck,
   DollarSign,
-  Code2 // Icon baru untuk Developer
+  Code2, // Icon untuk Developer
+  BriefcaseBusiness, // Icon baru untuk Employment (Optional, menggunakan Users jika tidak ada)
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import {
@@ -37,6 +38,7 @@ const mainMenuItems: { title: string; url: string; icon: any; roles?: UserRole[]
 
 // Group Menu Baru
 const teamItems: { title: string; url: string; icon: any; roles?: UserRole[] }[] = [
+  // --- AKHIR PENAMBAHAN ---
   { title: 'Developers', url: '/developers', icon: Code2, roles: ['admin', 'cs', 'finance'] }, 
 ];
 

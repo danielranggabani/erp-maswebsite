@@ -14,28 +14,44 @@ import type { Database } from "@/integrations/supabase/types";
 type Company = Database['public']['Tables']['companies']['Row'];
 type CompanyInsert = Database['public']['Tables']['companies']['Insert'];
 
-// Simulasi fungsi upload ke Supabase Storage
-// Anda perlu mengganti ini dengan implementasi Supabase Storage yang sebenarnya
+/**
+ * Fungsi utilitas untuk mengunggah file ke Supabase Storage.
+ * MENGGANTIKAN FUNGSI SIMULASI.
+ */
 const uploadFileToSupabase = async (file: File, path: string): Promise<string> => {
-  // Batas ukuran file 3MB
+  // Batasan ukuran file 3MB
   const MAX_SIZE = 3 * 1024 * 1024;
   if (file.size > MAX_SIZE) {
     throw new Error("Ukuran file tidak boleh lebih dari 3MB.");
   }
   
-  // Contoh path: 'company/logo/timestamp_filename.png'
-  const filePath = `${path}/${Date.now()}_${file.name}`;
+  // Buat path file unik: company/logo/timestamp_filename.png
+  // Mengganti spasi dengan underscore untuk kompatibilitas URL
+  const filePath = `${path}/${Date.now()}_${file.name.replace(/\s/g, '_')}`;
 
-  // --- START: Ganti dengan logika Supabase Storage yang sebenarnya ---
-  console.log(`[SIMULASI UPLOAD]: Mengunggah ${file.name} ke ${filePath}`);
-  await new Promise(resolve => setTimeout(resolve, 1000)); // Simulasi delay
-  // const { data, error } = await supabase.storage.from('documents').upload(filePath, file);
-  // if (error) throw error;
-  // const { data: publicUrlData } = supabase.storage.from('documents').getPublicUrl(data.path);
-  // return publicUrlData.publicUrl;
-  // --- END: Ganti dengan logika Supabase Storage yang sebenarnya ---
+  // 1. Upload file ke Supabase Storage (Asumsi nama bucket: 'documents')
+  const { error: uploadError } = await supabase.storage
+    .from('documents') 
+    .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: true 
+    });
+    
+  if (uploadError) {
+    console.error('Supabase Upload Error:', uploadError);
+    throw new Error(`Gagal mengunggah file: ${uploadError.message}`);
+  }
 
-  return `https://mock-storage.com/${filePath}`; 
+  // 2. Dapatkan URL publik
+  const { data: publicUrlData } = supabase.storage
+    .from('documents')
+    .getPublicUrl(filePath);
+
+  if (!publicUrlData.publicUrl) {
+    throw new Error("Gagal mendapatkan URL publik untuk file yang diunggah.");
+  }
+  
+  return publicUrlData.publicUrl; 
 };
 
 export default function Settings() {
@@ -112,24 +128,29 @@ export default function Settings() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Simpan semua field teks sekaligus
     updateMutation.mutate(formData);
   };
   
-  // Handler untuk Logo Upload
+  // Handler untuk Logo Upload - MODIFIED
   const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       try {
-        const url = await uploadFileToSupabase(file, 'company/logo');
+        const url = await uploadFileToSupabase(file, 'company/logo'); 
         setFormData(prev => ({ ...prev, logo_url: url }));
         toast({ title: "Upload Berhasil", description: "Logo berhasil diunggah dan disimpan di formulir." });
+        
+        // Simpan URL ke database secara terpisah/otomatis setelah upload sukses
+        updateMutation.mutate({ ...formData, logo_url: url });
+
       } catch (error: any) {
         toast({ title: "Error Upload", description: error.message, variant: "destructive" });
       }
     }
   };
 
-  // Handler untuk Tanda Tangan Upload
+  // Handler untuk Tanda Tangan Upload - MODIFIED
   const handleSignatureUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -137,6 +158,9 @@ export default function Settings() {
         const url = await uploadFileToSupabase(file, 'company/signature');
         setFormData(prev => ({ ...prev, signature_url: url }));
         toast({ title: "Upload Berhasil", description: "Tanda tangan berhasil diunggah dan disimpan di formulir." });
+        
+        // Simpan URL ke database secara terpisah/otomatis setelah upload sukses
+        updateMutation.mutate({ ...formData, signature_url: url });
       } catch (error: any) {
         toast({ title: "Error Upload", description: error.message, variant: "destructive" });
       }
@@ -231,7 +255,8 @@ export default function Settings() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            {/* Form ini sekarang hanya berfungsi untuk menampilkan button Save terakhir */}
+            <form className="space-y-4" onSubmit={handleSubmit}> 
               {/* LOGO UPLOAD */}
               <div className="space-y-2">
                 <Label htmlFor="logo_upload">Logo Perusahaan (.png/.jpg)</Label>
@@ -252,7 +277,7 @@ export default function Settings() {
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">
-                  URL Tersimpan: {formData.logo_url || 'Belum ada'}
+                  URL Tersimpan: {formData.logo_url ? 'Sudah terunggah' : 'Belum ada'}
                 </p>
               </div>
 
@@ -276,14 +301,14 @@ export default function Settings() {
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">
-                  URL Tersimpan: {formData.signature_url || 'Belum ada'}
+                  URL Tersimpan: {formData.signature_url ? 'Sudah terunggah' : 'Belum ada'}
                 </p>
               </div>
               
               <div className="flex justify-end">
                 <Button type="submit" disabled={updateMutation.isPending}>
                   <Save className="mr-2 h-4 w-4" />
-                  {updateMutation.isPending ? "Menyimpan..." : "Simpan URL Perubahan"}
+                  {updateMutation.isPending ? "Menyimpan..." : "Simpan URL Perubahan Lain"}
                 </Button>
               </div>
             </form>

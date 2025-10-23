@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -20,7 +20,7 @@ type Lead = Database['public']['Tables']['leads']['Row'];
 type LeadInsert = Database['public']['Tables']['leads']['Insert'];
 type LeadStatus = Database['public']['Enums']['lead_status'];
 type LeadSource = Database['public']['Enums']['lead_source'];
-type Package = Database['public']['Tables']['packages']['Row']; // Import Package type
+type Package = Database['public']['Tables']['packages']['Row']; 
 
 // Query untuk mengambil daftar paket aktif
 const usePackagesQuery = () => useQuery({
@@ -65,7 +65,7 @@ export default function Leads() {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: packages = [] } = usePackagesQuery(); // Ambil data packages
+  const { data: packages = [] } = usePackagesQuery(); 
 
   const { data: leads = [], isLoading } = useQuery({
     queryKey: ['leads'],
@@ -142,11 +142,17 @@ export default function Leads() {
     }
   });
 
-  // MUTASI UNTUK KONVERSI LEAD BARU
+  // MUTASI UNTUK KONVERSI LEAD BARU - MODIFIED
   const convertMutation = useMutation({
+    // Tidak memerlukan argumen id, karena menggunakan state convertingLead
     mutationFn: async () => {
         if (!convertingLead || !convertFormData.packageName || parseFloat(convertFormData.projectPrice) <= 0) {
             throw new Error("Data konversi tidak lengkap atau harga tidak valid.");
+        }
+        
+        const selectedPackage = packages.find(p => p.id === convertFormData.packageName);
+        if (!selectedPackage) {
+             throw new Error("Paket tidak valid atau tidak aktif.");
         }
 
         // 1. Ciptakan Client baru
@@ -154,21 +160,22 @@ export default function Leads() {
             nama: convertingLead.nama,
             email: convertingLead.kontak.includes('@') ? convertingLead.kontak : null,
             whatsapp: !convertingLead.kontak.includes('@') ? convertingLead.kontak : null,
+            bisnis: convertingLead.nama, // Asumsi nama bisnis sama dengan nama lead
             status: 'deal', 
-            catatan: `Dikonversi dari Lead. Sumber: ${convertingLead.sumber}`,
+            catatan: `Dikonversi dari Lead. Sumber: ${convertingLead.sumber}.`,
         }).select().single();
 
         if (clientError) throw clientError;
 
         // 2. Ciptakan Project baru
         const { data: projectData, error: projectError } = await supabase.from('projects').insert({
-            nama_proyek: `Proyek ${convertingLead.nama}`,
+            nama_proyek: `Proyek ${convertingLead.nama} (${selectedPackage.nama})`,
             client_id: clientData.id,
-            package_id: convertFormData.packageName,
+            package_id: selectedPackage.id,
             harga: parseFloat(convertFormData.projectPrice),
             status: 'briefing',
-            ruang_lingkup: `Proyek website berdasarkan paket yang dipilih: ${packages.find(p => p.id === convertFormData.packageName)?.nama}.`,
-            estimasi_hari: packages.find(p => p.id === convertFormData.packageName)?.estimasi_hari || 7,
+            ruang_lingkup: `Proyek website berdasarkan paket yang dipilih: ${selectedPackage.nama}.`,
+            estimasi_hari: selectedPackage.estimasi_hari || 7,
         }).select().single();
 
         if (projectError) throw projectError;
@@ -185,6 +192,7 @@ export default function Leads() {
         return { client: clientData, project: projectData };
     },
     onSuccess: () => {
+        // Invalidate semua query yang terpengaruh
         queryClient.invalidateQueries({ queryKey: ['leads'] });
         queryClient.invalidateQueries({ queryKey: ['clients'] });
         queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -236,9 +244,10 @@ export default function Leads() {
       setConvertingLead(lead);
       setIsConvertDialogOpen(true);
       // Set nilai default form konversi
+      const defaultPackage = packages.length > 0 ? packages[0] : null;
       setConvertFormData({
-          packageName: packages.length > 0 ? packages[0].id! : '',
-          projectPrice: '5000000', 
+          packageName: defaultPackage?.id || '',
+          projectPrice: defaultPackage?.harga ? String(defaultPackage.harga) : '5000000', 
       });
   };
   
@@ -352,14 +361,14 @@ export default function Leads() {
                     rows={3}
                   />
                 </div>
-                <div className="flex justify-end gap-2">
+                <DialogFooter>
                   <Button type="button" variant="outline" onClick={resetForm}>
                     Batal
                   </Button>
                   <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
                     {editingLead ? "Update" : "Simpan"}
                   </Button>
-                </div>
+                </DialogFooter>
               </form>
             </DialogContent>
           </Dialog>
@@ -379,60 +388,62 @@ export default function Leads() {
             {isLoading ? (
               <p>Loading...</p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nama</TableHead>
-                    <TableHead>Kontak</TableHead>
-                    <TableHead>Sumber</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Catatan</TableHead>
-                    <TableHead>Aksi</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredLeads.map((lead) => (
-                    <TableRow key={lead.id}>
-                      <TableCell className="font-medium">{lead.nama}</TableCell>
-                      <TableCell>{lead.kontak}</TableCell>
-                      <TableCell>{getSumberBadge(lead.sumber)}</TableCell>
-                      <TableCell>{getStatusBadge(lead.status!)}</TableCell>
-                      <TableCell className="max-w-xs truncate">{lead.catatan}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                            {/* Tombol Konversi (Hanya muncul jika status belum Closing/Gagal) */}
-                            {lead.status !== 'closing' && lead.status !== 'gagal' && (
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleConvertLead(lead)}
-                                    title="Convert to Client & Project"
-                                    disabled={convertMutation.isPending}
-                                >
-                                    <ChevronRight className="h-4 w-4 mr-1" /> Convert
-                                </Button>
-                            )}
-
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleEdit(lead)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeleteId(lead.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              <div className='overflow-x-auto'>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nama</TableHead>
+                      <TableHead>Kontak</TableHead>
+                      <TableHead>Sumber</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Catatan</TableHead>
+                      <TableHead className='min-w-[150px]'>Aksi</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredLeads.map((lead) => (
+                      <TableRow key={lead.id}>
+                        <TableCell className="font-medium">{lead.nama}</TableCell>
+                        <TableCell>{lead.kontak}</TableCell>
+                        <TableCell>{getSumberBadge(lead.sumber)}</TableCell>
+                        <TableCell>{getStatusBadge(lead.status!)}</TableCell>
+                        <TableCell className="max-w-xs truncate">{lead.catatan}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                              {/* Tombol Konversi (Hanya muncul jika status belum Closing/Gagal) */}
+                              {lead.status !== 'closing' && lead.status !== 'gagal' && (
+                                  <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleConvertLead(lead)}
+                                      title="Convert to Client & Project"
+                                      disabled={convertMutation.isPending}
+                                  >
+                                      <ChevronRight className="h-4 w-4 mr-1" /> Convert
+                                  </Button>
+                              )}
+
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(lead)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteId(lead.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -446,7 +457,7 @@ export default function Leads() {
                 <form 
                     onSubmit={(e) => { 
                         e.preventDefault(); 
-                        if (convertingLead) convertMutation.mutate(convertingLead!.id); 
+                        convertMutation.mutate(undefined as any); // Memanggil mutation tanpa argumen (data diambil dari state)
                     }} 
                     className="space-y-4"
                 >

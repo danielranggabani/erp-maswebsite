@@ -15,24 +15,49 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
+// Utility untuk format mata uang
+const formatCurrency = (amount: number, unit: boolean = true) => {
+  if (amount >= 1000000) {
+      return (amount / 1000000).toFixed(1) + 'M';
+  }
+  if (amount >= 1000) {
+      return (amount / 1000).toFixed(1) + 'K';
+  }
+  return amount.toLocaleString('id-ID');
+}
+
+
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // Fetch stats
-  const { data: stats } = useQuery({
+  // Hitung tanggal awal bulan ini untuk filter keuangan
+  const today = new Date();
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+
+  // Fetch stats - MENGGUNAKAN DATA REAL
+  const { data: stats, isLoading: isLoadingStats } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
-      const [clients, projects, invoices, finances] = await Promise.all([
+      // Menggunakan Promise.all untuk fetch data secara paralel
+      const [clientsRes, projectsRes, invoicesRes, financesRes] = await Promise.all([
+        // 1. Total Clients (Count)
         supabase.from('clients').select('id', { count: 'exact', head: true }),
-        supabase.from('projects').select('id, status', { count: 'exact' }),
-        supabase.from('invoices').select('amount, status').eq('status', 'menunggu_dp'),
-        supabase.from('finances').select('nominal, tipe').gte('tanggal', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]),
+        // 2. Active Projects (Status != selesai/launch)
+        supabase.from('projects').select('id, status'),
+        // 3. Pending Invoices (Menunggu DP / Overdue)
+        supabase.from('invoices').select('amount, status').in('status', ['menunggu_dp', 'overdue']),
+        // 4. Revenue This Month (Income bulan ini)
+        supabase.from('finances').select('nominal, tipe').eq('tipe', 'income').gte('tanggal', startOfMonth),
       ]);
 
-      const totalClients = clients.count || 0;
-      const activeProjects = projects.data?.filter(p => !['selesai', 'launch'].includes(p.status)).length || 0;
-      const pendingInvoices = invoices.data?.reduce((sum, inv) => sum + Number(inv.amount), 0) || 0;
-      const revenue = finances.data?.filter(f => f.tipe === 'income').reduce((sum, f) => sum + Number(f.nominal), 0) || 0;
+      const totalClients = clientsRes.count || 0;
+      
+      const activeProjects = projectsRes.data?.filter(p => !['selesai', 'launch'].includes(p.status || ''))
+        .length || 0;
+        
+      const pendingInvoices = invoicesRes.data?.reduce((sum, inv) => sum + Number(inv.amount), 0) || 0;
+      
+      const revenue = financesRes.data?.reduce((sum, f) => sum + Number(f.nominal), 0) || 0;
 
       return {
         totalClients,
@@ -41,17 +66,18 @@ export default function Dashboard() {
         revenue,
       };
     },
+    refetchInterval: 60000, // Refresh data setiap 1 menit
   });
 
-  // Mock chart data
+  // Mock chart data (tetap digunakan karena agregasi chart kompleks memerlukan API/Logic yang lebih advance)
   const chartData = [
-    { date: 'Jan 24', value: 1200 },
-    { date: 'Jan 25', value: 1400 },
-    { date: 'Jan 26', value: 1100 },
-    { date: 'Jan 27', value: 1800 },
-    { date: 'Jan 28', value: 1600 },
-    { date: 'Jan 29', value: 2200 },
-    { date: 'Jan 30', value: 2100 },
+    { date: 'Senin', value: 1200 },
+    { date: 'Selasa', value: 1400 },
+    { date: 'Rabu', value: 1100 },
+    { date: 'Kamis', value: 1800 },
+    { date: 'Jumat', value: 1600 },
+    { date: 'Sabtu', value: 2200 },
+    { date: 'Minggu', value: 2100 },
   ];
 
   return (
@@ -67,34 +93,38 @@ export default function Dashboard() {
 
         {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          
+          {/* Card 1: Total Clients */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats?.totalClients || 0}</div>
+              <div className="text-2xl font-bold">{isLoadingStats ? '...' : (stats?.totalClients || 0)}</div>
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                 <ArrowUpRight className="h-3 w-3 text-green-500" />
-                <span className="text-green-500">+12.5%</span> from last month
+                <span className="text-green-500">+12.5%</span> from last month (Mock)
               </p>
             </CardContent>
           </Card>
 
+          {/* Card 2: Active Projects */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
               <FolderKanban className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats?.activeProjects || 0}</div>
+              <div className="text-2xl font-bold">{isLoadingStats ? '...' : (stats?.activeProjects || 0)}</div>
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                 <ArrowUpRight className="h-3 w-3 text-green-500" />
-                <span className="text-green-500">+4.8%</span> from last month
+                <span className="text-green-500">+4.8%</span> from last month (Mock)
               </p>
             </CardContent>
           </Card>
 
+          {/* Card 3: Pending Invoices */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending Invoices</CardTitle>
@@ -102,32 +132,33 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                Rp {((stats?.pendingInvoices || 0) / 1000).toFixed(1)}K
+                {isLoadingStats ? '...' : `Rp ${formatCurrency(stats?.pendingInvoices || 0)}`}
               </div>
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                 <ArrowDownRight className="h-3 w-3 text-yellow-500" />
-                <span className="text-yellow-500">-2.4%</span> from last month
+                <span className="text-yellow-500">-2.4%</span> from last month (Mock)
               </p>
             </CardContent>
           </Card>
 
+          {/* Card 4: Revenue This Month */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Revenue This Month</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                Rp {((stats?.revenue || 0) / 1000000).toFixed(1)}M
+              <div className="text-2xl font-bold text-green-600">
+                {isLoadingStats ? '...' : `Rp ${formatCurrency(stats?.revenue || 0)}`}
               </div>
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                 <ArrowUpRight className="h-3 w-3 text-green-500" />
-                <span className="text-green-500">+18.2%</span> from last month
+                <span className="text-green-500">+18.2%</span> from last month (Mock)
               </p>
             </CardContent>
           </Card>
         </div>
-
+        
         {/* Chart */}
         <Card>
           <CardHeader>
@@ -135,7 +166,7 @@ export default function Dashboard() {
               <div>
                 <CardTitle>Revenue Overview</CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Total for the last 7 days
+                  Total for the last 7 days (Mock Data)
                 </p>
               </div>
               <div className="flex gap-2">
@@ -182,6 +213,7 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </CardContent>
         </Card>
+
 
         {/* Quick Actions */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

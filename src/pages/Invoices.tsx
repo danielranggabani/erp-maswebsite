@@ -13,17 +13,17 @@ import {
   TableFooter
 } from '@/components/ui/table';
 import { 
-  PlusCircle, 
-  Search, 
-  Pencil, 
-  Trash2, 
-  Download, 
-  Calendar, 
-  DollarSign,
-  ArrowRight,
-  FileText
+    PlusCircle, 
+    Search, 
+    Pencil, 
+    Trash2, 
+    Download, 
+    Calendar, 
+    DollarSign,
+    ArrowRight,
+    FileText
 } from 'lucide-react'; 
-import React, { useState, useEffect, useRef } from 'react'; // <-- IMPORT useRef
+import React, { useState, useEffect, useRef } from 'react'; 
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { 
@@ -50,13 +50,14 @@ import {
 } from '@/components/ui/alert-dialog';
 import { generateUniqueNumber } from '@/lib/number-generator';
 import { Separator } from '@/components/ui/separator'; 
-import html2canvas from 'html2canvas'; // <-- GENERATOR
-import jsPDF from 'jspdf'; // <-- GENERATOR
+import html2canvas from 'html2canvas'; 
+import jsPDF from 'jspdf'; 
 
 
 // ======================= TIPE DATA DENGAN JOIN =======================
 type ProjectRow = Database['public']['Tables']['projects']['Row'];
 type Company = Database['public']['Tables']['companies']['Row']; 
+type FinanceInsert = Database['public']['Tables']['finances']['Insert']; // Ditambahkan
 
 type Project = ProjectRow & { clients: { nama: string } | null };
 type Invoice = Database['public']['Tables']['invoices']['Row'] & { 
@@ -88,7 +89,7 @@ const formatCurrency = (amount: number) => {
 };
 
 
-// --- KOMPONEN TEMPLATE INVOICE VIEW (STABIL DENGAN FORWARDREF) ---
+// --- KOMPONEN TEMPLATE INVOICE VIEW (Dibiarkan sama) ---
 interface InvoiceViewProps {
   invoice: Invoice;
   company: Company | null;
@@ -223,7 +224,7 @@ const InvoiceView = React.forwardRef<HTMLDivElement, InvoiceViewProps>(({ invoic
 });
 InvoiceView.displayName = 'InvoiceView';
 
-// ======================= DATA FETCHING & MUTATION =======================
+// ======================= DATA FETCHING & MUTATION - MODIFIED =======================
 const useInvoiceData = () => {
     const queryClient = useQueryClient();
     const { toast } = useToast();
@@ -293,29 +294,66 @@ const useInvoiceData = () => {
         }
     });
 
-    // Mutation untuk menghapus Invoice
+    // Mutation untuk menghapus Invoice - MODIFIED
     const deleteMutation = useMutation({
         mutationFn: async (id: string) => {
+            // Hapus juga record di tabel finances yang terkait
+            const { error: financeDeleteError } = await supabase.from('finances').delete().eq('invoice_id', id);
+            if (financeDeleteError) console.error("Error deleting related finance record:", financeDeleteError);
+
             const { error } = await supabase.from('invoices').delete().eq('id', id);
             if (error) throw error;
         },
         onSuccess: () => {
             toast({ title: 'Sukses', description: 'Invoice berhasil dihapus.' });
             queryClient.invalidateQueries({ queryKey: ['invoice-page-data'] });
+            queryClient.invalidateQueries({ queryKey: ['finances'] }); // Refresh data keuangan
         },
         onError: (error: any) => {
             toast({ title: 'Error', description: error.message, variant: 'destructive' });
         }
     });
     
-    // Mutation untuk update status (Lunas/Belum Lunas)
+    // MODIFIKASI KRITIS: Mutation untuk update status (Lunas/Belum Lunas) dengan OTOMASI KEUANGAN
     const updateStatusMutation = useMutation({
-        mutationFn: async ({ id, status, paid_at }: { id: string, status: string, paid_at: string | null }) => {
-            const { error } = await supabase.from('invoices').update({ status, paid_at }).eq('id', id);
-            if (error) throw error;
+        mutationFn: async ({ id, status, paid_at, amount, isLunasNow }: { id: string, status: string, paid_at: string | null, amount: number, isLunasNow: boolean }) => {
+            
+            // 1. Update Invoice
+            const { error: invoiceError } = await supabase.from('invoices').update({ status, paid_at }).eq('id', id);
+            if (invoiceError) throw invoiceError;
+            
+            // 2. LOGIKA OTOMATISASI KEUANGAN
+            if (isLunasNow) {
+                // Hapus record lama untuk menghindari duplikasi saat diubah dari lunas -> menunggu dp -> lunas
+                const { error: deleteExistingError } = await supabase.from('finances').delete().eq('invoice_id', id);
+
+                // Tambahkan pemasukan baru ke tabel finances
+                const newFinance: FinanceInsert = {
+                    tipe: 'income',
+                    kategori: 'pendapatan', // Asumsi semua invoice lunas adalah pendapatan
+                    nominal: amount,
+                    // Pastikan tanggal menggunakan format Date ISO string YYYY-MM-DD
+                    tanggal: new Date().toISOString().split('T')[0], 
+                    keterangan: `Pemasukan dari Invoice #${id}`,
+                    invoice_id: id,
+                };
+
+                const { error: financeError } = await supabase.from('finances').insert(newFinance);
+                
+                if (financeError) {
+                    console.error("Gagal membuat record finance otomatis:", financeError);
+                }
+
+            } else {
+                // Jika status diubah kembali dari Lunas (misalnya ke Menunggu DP), hapus record finance terkait
+                const { error: deleteError } = await supabase.from('finances').delete().eq('invoice_id', id);
+                if (deleteError) console.error("Gagal menghapus record finance terkait:", deleteError);
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['invoice-page-data'] });
+            queryClient.invalidateQueries({ queryKey: ['finances'] }); // KRITIS: Refresh data keuangan
+            toast({ title: 'Sukses', description: 'Status Invoice dan Catatan Keuangan berhasil diupdate.' });
         },
         onError: (error: any) => {
             toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -407,15 +445,19 @@ export default function Invoices() {
     setDialogOpen(false);
   };
   
+  // MODIFIKASI KRITIS: handleMarkPaid untuk mengirim data nominal dan flag lunas
   const handleMarkPaid = (invoice: Invoice) => {
-      const isLunas = invoice.status === 'lunas';
-      const newStatus = isLunas ? 'menunggu_dp' : 'lunas'; 
-      const paid_at = isLunas ? null : new Date().toISOString();
+      const isLunasBefore = invoice.status === 'lunas';
+      const newStatus = isLunasBefore ? 'menunggu_dp' : 'lunas'; 
+      const paid_at = isLunasBefore ? null : new Date().toISOString();
+      const isLunasNow = newStatus === 'lunas'; // Flag untuk trigger finance record
 
       updateStatusMutation.mutate({ 
           id: invoice.id, 
           status: newStatus, 
-          paid_at 
+          paid_at,
+          amount: invoice.amount || 0, // Kirimkan nominal
+          isLunasNow, // Kirimkan flag
       });
   };
   
@@ -697,6 +739,7 @@ export default function Invoices() {
                               </Button>
 
                               {/* 2. Download Button (Langsung Unduh) */}
+                              {/* Ini masih mock URL, untuk generate PDF asli gunakan tombol di modal preview */}
                               {invoice.pdf_url && (
                                   <a 
                                       href={invoice.pdf_url} 
@@ -710,7 +753,7 @@ export default function Invoices() {
                                   </a>
                               )}
                               
-                              {/* 3. Mark Paid Button */}
+                              {/* 3. Mark Paid Button - Menggunakan fungsi yang dimodifikasi */}
                               <Button 
                                   size="sm" 
                                   variant="ghost" 

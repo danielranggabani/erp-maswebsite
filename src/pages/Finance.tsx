@@ -21,6 +21,16 @@ type FinanceInsert = Database['public']['Tables']['finances']['Insert'];
 type FinanceType = Database['public']['Enums']['finance_type'];
 type FinanceCategory = Database['public']['Enums']['finance_category'];
 
+// Utility untuk format mata uang
+const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0
+    }).format(amount);
+};
+
+
 export default function Finance() {
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -37,6 +47,7 @@ export default function Finance() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Fetch semua data keuangan
   const { data: finances = [], isLoading } = useQuery({
     queryKey: ['finances'],
     queryFn: async () => {
@@ -46,7 +57,8 @@ export default function Finance() {
         .order('tanggal', { ascending: false });
       
       if (error) throw error;
-      return data as Finance[];
+      // Memastikan nominal dikonversi ke number (dari Decimal/string di DB)
+      return data.map(f => ({ ...f, nominal: Number(f.nominal) })) as Finance[];
     }
   });
 
@@ -63,6 +75,8 @@ export default function Finance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['finances'] });
+      // Invalidate dashboard juga karena metrik Revenue berubah
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       toast({ title: "Transaksi berhasil ditambahkan" });
       resetForm();
     },
@@ -85,6 +99,7 @@ export default function Finance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['finances'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       toast({ title: "Transaksi berhasil diupdate" });
       resetForm();
     },
@@ -104,6 +119,7 @@ export default function Finance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['finances'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       toast({ title: "Transaksi berhasil dihapus" });
       setDeleteId(null);
     },
@@ -155,27 +171,22 @@ export default function Finance() {
     finance.keterangan?.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Perhitungan Laporan
   const totalIncome = finances
     .filter(f => f.tipe === 'income')
-    .reduce((sum, f) => sum + Number(f.nominal), 0);
+    .reduce((sum, f) => sum + f.nominal, 0);
 
   const totalExpense = finances
     .filter(f => f.tipe === 'expense')
-    .reduce((sum, f) => sum + Number(f.nominal), 0);
+    .reduce((sum, f) => sum + f.nominal, 0);
 
   const balance = totalIncome - totalExpense;
 
-  // LOGIKA BARU: PPH Final 0.5% dari Omzet (totalIncome)
+  // LOGIKA PPH Final 0.5% dari Omzet (totalIncome)
   const pphFinalRate = 0.005; // 0.5%
-  const pphFinalAmount = totalIncome * pphFinalRate;
+  const omzetSetahun = totalIncome; // Anggap semua data yang ditarik adalah omzet setahun
+  const pphFinalAmount = omzetSetahun * pphFinalRate;
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0
-    }).format(amount);
-  };
 
   return (
     <DashboardLayout>
@@ -270,11 +281,11 @@ export default function Finance() {
           </Dialog>
         </div>
 
-        {/* MENGUBAH GRID MENJADI 4 KOLOM */}
+        {/* METRIK KEUANGAN DAN PAJAK */}
         <div className="grid gap-4 md:grid-cols-4"> 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Pemasukan</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Pemasukan (Omzet)</CardTitle>
               <TrendingUp className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
@@ -302,7 +313,7 @@ export default function Finance() {
             </CardContent>
           </Card>
           
-          {/* KARTU BARU: SIMULASI PAJAK PPh FINAL 0.5% */}
+          {/* KARTU PAJAK PPh FINAL 0.5% */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Simulasi PPh Final (0.5%)</CardTitle>
@@ -311,7 +322,7 @@ export default function Finance() {
             <CardContent>
               <div className="text-2xl font-bold text-primary">{formatCurrency(pphFinalAmount)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Dari Omzet {formatCurrency(totalIncome)}
+                Dari Omzet {formatCurrency(omzetSetahun)}
               </p>
             </CardContent>
           </Card>
@@ -331,51 +342,53 @@ export default function Finance() {
             {isLoading ? (
               <p>Loading...</p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Tanggal</TableHead>
-                    <TableHead>Tipe</TableHead>
-                    <TableHead>Kategori</TableHead>
-                    <TableHead>Nominal</TableHead>
-                    <TableHead>Keterangan</TableHead>
-                    <TableHead>Aksi</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredFinances.map((finance) => (
-                    <TableRow key={finance.id}>
-                      <TableCell>{new Date(finance.tanggal).toLocaleDateString('id-ID')}</TableCell>
-                      <TableCell>
-                        <Badge className={finance.tipe === 'income' ? 'bg-green-500' : 'bg-red-500'}>
-                          {finance.tipe === 'income' ? 'Pemasukan' : 'Pengeluaran'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{finance.kategori}</TableCell>
-                      <TableCell className="font-medium">{formatCurrency(Number(finance.nominal))}</TableCell>
-                      <TableCell className="max-w-xs truncate">{finance.keterangan}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleEdit(finance)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeleteId(finance.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tanggal</TableHead>
+                      <TableHead>Tipe</TableHead>
+                      <TableHead>Kategori</TableHead>
+                      <TableHead>Nominal</TableHead>
+                      <TableHead>Keterangan</TableHead>
+                      <TableHead>Aksi</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredFinances.map((finance) => (
+                      <TableRow key={finance.id}>
+                        <TableCell>{new Date(finance.tanggal).toLocaleDateString('id-ID')}</TableCell>
+                        <TableCell>
+                          <Badge className={finance.tipe === 'income' ? 'bg-green-500' : 'bg-red-500'}>
+                            {finance.tipe === 'income' ? 'Pemasukan' : 'Pengeluaran'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{finance.kategori}</TableCell>
+                        <TableCell className="font-medium">{formatCurrency(finance.nominal)}</TableCell>
+                        <TableCell className="max-w-xs truncate">{finance.keterangan}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(finance)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteId(finance.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
