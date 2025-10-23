@@ -29,24 +29,25 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { PlusCircle, Search, Pencil, Trash2 } from 'lucide-react';
+import { PlusCircle, Search, Pencil, Trash2, User, CheckCircle2 } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import type { Database } from '@/integrations/supabase/types';
-// ASUMSI: Anda memiliki hook untuk mengambil role user
 import { useRoles } from '@/hooks/useRoles'; 
 
 // ======================= TIPE DATA =======================
 type Project = Database['public']['Tables']['projects']['Row'];
 type ProjectInsert = Database['public']['Tables']['projects']['Insert'];
 type UserRole = Database['public']['Enums']['user_role']; 
+type Client = Database['public']['Tables']['clients']['Row'];
+type Package = Database['public']['Tables']['packages']['Row'];
+type Profile = Database['public']['Tables']['profiles']['Row'];
 
-// Tipe Data Gabungan untuk Project (dengan Client dan Developer)
 interface ProjectExtended extends Project {
     clients: { nama: string } | null;
-    developers: { full_name: string } | null;
+    packages: { nama: string } | null;
 }
 
 const statusColors = {
@@ -74,40 +75,71 @@ const initialFormData: Partial<ProjectInsert> = {
 
 // ======================= HOOKS DATA & MUTASI =======================
 
-const useProjectData = (currentUserId: string | null) => {
+const useProjectData = () => {
     const { toast } = useToast();
-    const queryClient = useQueryClient();
+    const [loading, setLoading] = useState(true);
+    const [allData, setAllData] = useState<{
+        projects: ProjectExtended[];
+        clients: Client[];
+        packages: Package[];
+        developers: Profile[]; 
+    }>({ projects: [], clients: [], packages: [], developers: [] });
 
-    // Query utama proyek (Mengambil semua karena RLS diatur longgar/dihapus)
-    const { data: projects, isLoading } = useQuery({
-        queryKey: ['projects', 'all'], // Query key disederhanakan
-        queryFn: async () => {
-            // Mengambil SEMUA PROYEK. Filtering akan dilakukan di sisi Client.
-            const { data, error } = await supabase
-                .from('projects')
-                .select(`
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            // 1. Ambil ID semua user dengan role 'developer'
+            const { data: roleData, error: roleError } = await supabase.from('user_roles').select('user_id').eq('role', 'developer');
+            if (roleError) throw roleError;
+            const developerIds = roleData.map(r => r.user_id);
+            
+            // 2. Ambil Profiles hanya untuk ID developer
+            const { data: devsRes, error: devsError } = await supabase.from('profiles').select('id, full_name').in('id', developerIds);
+            if (devsError) throw devsError;
+
+            // 3. Ambil data utama lainnya (Projects)
+            const [projectsRes, clientsRes, packagesRes] = await Promise.all([
+                supabase.from('projects').select(`
                     *,
                     clients(nama),
-                    developers:developer_id(full_name)
-                `)
-                .order('created_at', { ascending: false });
+                    packages(nama)
+                `).order('created_at', { ascending: false }),
+                supabase.from('clients').select('id, nama'), 
+                supabase.from('packages').select('id, nama').eq('is_active', true),
+            ]);
 
-            if (error) throw error;
-            return data as ProjectExtended[];
-        },
-        enabled: !!currentUserId,
-        onError: (error) => {
-            toast({ title: "Error", description: "Gagal memuat data proyek.", variant: "destructive" });
+            if (projectsRes.error) throw projectsRes.error;
+            if (clientsRes.error) throw clientsRes.error;
+            if (packagesRes.error) throw projectsRes.error;
+
+            setAllData({
+                projects: projectsRes.data as ProjectExtended[],
+                clients: clientsRes.data as Client[],
+                packages: packagesRes.data as Package[],
+                developers: devsRes as Profile[], 
+            });
+        } catch (error: any) {
+            console.error("Project Fetch Error:", error.message);
+            toast({ 
+                title: 'Gagal Memuat Data', 
+                description: 'Terjadi kesalahan saat mengambil data proyek. Periksa konsol untuk detail.', 
+                variant: 'destructive' 
+            });
+        } finally {
+            setLoading(false);
         }
-    });
-
-    // Mutasi CRUD (tetap sama)
+    };
+    
     const createMutation = useMutation({
         mutationFn: async (data: ProjectInsert) => {
             const { error } = await supabase.from('projects').insert([data]);
             if (error) throw error;
         },
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects', 'all'] }),
+        onSuccess: () => fetchData(),
         onError: (error: any) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
     });
 
@@ -116,7 +148,7 @@ const useProjectData = (currentUserId: string | null) => {
             const { error } = await supabase.from('projects').update(data).eq('id', id);
             if (error) throw error;
         },
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects', 'all'] }),
+        onSuccess: () => fetchData(),
         onError: (error: any) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
     });
 
@@ -125,13 +157,29 @@ const useProjectData = (currentUserId: string | null) => {
             const { error } = await supabase.from('projects').delete().eq('id', id);
             if (error) throw error;
         },
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects', 'all'] }),
-        onError: (error: any) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
+        onSuccess: () => {
+            toast({ title: 'Project deleted successfully' });
+            fetchData();
+        },
+        onError: (error: any) => {
+             toast({ title: 'Error Delete', description: `Gagal menghapus proyek. Pastikan Anda memiliki hak akses. Detail: ${error.message}`, variant: 'destructive' });
+        }
     });
 
-    return { projects, isLoading, createMutation, updateMutation, deleteMutation };
+    return { 
+        projects: allData.projects, 
+        clients: allData.clients, 
+        packages: allData.packages, 
+        developers: allData.developers, 
+        isLoading: loading, 
+        createMutation, 
+        updateMutation, 
+        deleteMutation, 
+        fetchData 
+    };
 };
 // ========================================================================
+
 
 const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -143,7 +191,6 @@ const formatCurrency = (amount: number) => {
 
 
 export default function Projects() {
-    // 1. Dapatkan Role dan User ID dari Hooks/State
     const { roles, isLoading: rolesLoading } = useRoles();
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [search, setSearch] = useState('');
@@ -151,52 +198,67 @@ export default function Projects() {
     const [formData, setFormData] = useState<Partial<ProjectInsert>>(initialFormData);
     const [editingProject, setEditingProject] = useState<ProjectExtended | null>(null);
     
-    // Penentuan Akses
     const isAdmin = roles.includes('admin');
     const isCS = roles.includes('cs');
     const isDeveloper = roles.includes('developer');
     const isFullAccessRole = isAdmin || isCS; 
 
-    // Ambil ID user yang sedang login saat komponen mount
+    // Ambil ID user saat komponen dimuat
     useEffect(() => {
         const fetchUser = async () => {
             const { data: { user } } = await supabase.auth.getSession();
-            if (user) {
-                setCurrentUserId(user.id);
-            }
+            setCurrentUserId(user?.id ?? null); 
         };
         fetchUser();
     }, []);
 
-    const { projects, isLoading, createMutation, updateMutation, deleteMutation } = useProjectData(currentUserId);
+    const { 
+        projects, 
+        clients, 
+        packages, 
+        developers, 
+        isLoading, 
+        createMutation, 
+        updateMutation, 
+        deleteMutation,
+        fetchData
+    } = useProjectData();
+    
+    const developerMap = new Map(developers.map(dev => [dev.id, dev])); 
+    const clientOptions = clients;
+    const developerOptions = developers; 
 
-    // Fetch data tambahan (Clients dan Developers) untuk dropdown formulir
-    const { data: clients } = useQuery({
-        queryKey: ['clients-list'],
-        queryFn: async () => {
-            const { data, error } = await supabase.from('clients').select('id, nama');
+    
+    // ================== MUTATION TANDAI SELESAI (Developer Action) ==================
+    const markAsDoneMutation = useMutation({
+        mutationFn: async (projectId: string) => {
+            // RLS di Projects table seharusnya membatasi UPDATE hanya untuk developer yang ditugaskan.
+            const { error } = await supabase
+                .from('projects')
+                .update({
+                    status: 'selesai',
+                    tanggal_selesai: new Date().toISOString().split('T')[0], // Set tanggal hari ini
+                })
+                .eq('id', projectId);
             if (error) throw error;
-            return data;
         },
-        enabled: isFullAccessRole,
+        onSuccess: () => {
+            fetchData(); // Refresh data untuk memicu RLS dan memperbarui tampilan
+            toast({ title: 'Sukses', description: 'Proyek ditandai selesai. Komisi telah dicatat.' });
+        },
+        onError: (error: any) => {
+            toast({ title: 'Error', description: `Gagal menandai selesai: ${error.message}.`, variant: 'destructive' });
+        }
     });
 
-    const { data: developers } = useQuery({
-        queryKey: ['developers-list'],
-        queryFn: async () => {
-            const { data: roleData, error: roleError } = await supabase.from('user_roles').select('user_id').eq('role', 'developer');
-            if (roleError) throw roleError;
-            const developerIds = roleData.map(r => r.user_id);
+    const handleMarkAsDone = (projectId: string, projectName: string) => {
+        if (confirm(`Apakah Anda yakin proyek "${projectName}" sudah selesai? Ini akan mencatat komisi Anda sebagai expense.`)) {
+            markAsDoneMutation.mutate(projectId);
+        }
+    };
+    // ====================================================================================
 
-            const { data: profileData, error: profileError } = await supabase.from('profiles').select('id, full_name');
-            if (profileError) throw profileError;
-            
-            return profileData.filter(p => developerIds.includes(p.id));
-        },
-        enabled: isFullAccessRole,
-    });
-    // ... (logic untuk packages)
-
+    
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!isFullAccessRole) return; 
@@ -233,23 +295,16 @@ export default function Projects() {
         }
     };
     
-    // 2. FILTERING SISI CLIENT (JAVASCRIPT)
-    const filteredProjects = projects?.filter(p => {
-        const searchMatch = p.nama_proyek?.toLowerCase().includes(search.toLowerCase()) ||
-                            p.clients?.nama?.toLowerCase().includes(search.toLowerCase());
-
-        // Jika user adalah Admin/CS, tampilkan semua proyek.
-        if (isFullAccessRole) {
-            return searchMatch;
-        } 
+    // FILTERING DI JAVASCRIPT HANYA UNTUK PENCARIAN
+    const filteredProjects = projects.filter(p => {
+        const searchLower = search.toLowerCase();
         
-        // Jika user adalah Developer, tampilkan hanya proyek yang ditugaskan kepadanya.
-        if (isDeveloper && p.developer_id === currentUserId) {
-            return searchMatch;
-        }
+        const projectName = (p.nama_proyek || '').toLowerCase();
+        const clientName = (p.clients?.nama || '').toLowerCase();
+        
+        const searchMatches = projectName.includes(searchLower) || clientName.includes(searchLower);
 
-        // Jika tidak ada role/tidak ditugaskan, jangan tampilkan.
-        return false;
+        return searchMatches;
     });
 
     const getStatusBadge = (status: string | null) => {
@@ -258,10 +313,20 @@ export default function Projects() {
     }
     
     const canEditProject = (project: ProjectExtended) => {
-        // Admin/CS bisa edit semua. Developer hanya bisa update Status & Note (Logic di DB)
-        // Di sini kita hanya izinkan tombol edit muncul jika dia Admin/CS atau Developer yang ditugaskan
         return isFullAccessRole || (isDeveloper && project.developer_id === currentUserId);
     };
+
+    // Tampilkan loading saat roles atau proyek sedang dimuat
+    if (rolesLoading || isLoading) {
+        return (
+            <DashboardLayout>
+                <div className="min-h-screen flex items-center justify-center">
+                    <p className="text-muted-foreground">Memuat data proyek dan otorisasi...</p>
+                </div>
+            </DashboardLayout>
+        );
+    }
+
 
     return (
         <DashboardLayout>
@@ -317,7 +382,7 @@ export default function Projects() {
                                                 >
                                                     <SelectTrigger><SelectValue placeholder="Select Client" /></SelectTrigger>
                                                     <SelectContent>
-                                                        {clients?.map(c => (
+                                                        {clientOptions?.map(c => (
                                                             <SelectItem key={c.id} value={c.id}>{c.nama}</SelectItem>
                                                         ))}
                                                     </SelectContent>
@@ -358,7 +423,7 @@ export default function Projects() {
                                                 >
                                                     <SelectTrigger><SelectValue placeholder="Assign Developer" /></SelectTrigger>
                                                     <SelectContent>
-                                                        {developers?.map(d => (
+                                                        {developerOptions?.map(d => (
                                                             <SelectItem key={d.id} value={d.id}>{d.full_name}</SelectItem>
                                                         ))}
                                                     </SelectContent>
@@ -429,53 +494,74 @@ export default function Projects() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {(isLoading || rolesLoading) ? (
-                                        <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Memuat data...</TableCell></TableRow>
-                                    ) : filteredProjects?.length === 0 ? (
+                                    {filteredProjects.length === 0 ? (
                                         <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Tidak ada proyek yang sesuai.</TableCell></TableRow>
                                     ) : (
-                                        filteredProjects?.map(project => (
-                                            <TableRow key={project.id}>
-                                                <TableCell className="font-medium">{project.nama_proyek}</TableCell>
-                                                <TableCell>{project.clients?.nama || '-'}</TableCell>
-                                                <TableCell>
-                                                    {project.developers?.full_name || '-'}
-                                                </TableCell>
-                                                <TableCell>
-                                                    {project.fee_developer ? formatCurrency(Number(project.fee_developer)) : '-'}
-                                                </TableCell>
-                                                <TableCell>{formatCurrency(Number(project.harga))}</TableCell>
-                                                <TableCell>
-                                                    {getStatusBadge(project.status)}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <div className="flex justify-end gap-2">
-                                                        
-                                                        {canEditProject(project) && (
-                                                            <Button 
-                                                                size="icon" 
-                                                                variant="ghost" 
-                                                                title="Edit"
-                                                                onClick={() => handleEdit(project)}
-                                                            >
-                                                                <Pencil className="h-4 w-4" />
-                                                            </Button>
-                                                        )}
-                                                        
-                                                        {isFullAccessRole && (
-                                                            <Button 
-                                                                size="icon" 
-                                                                variant="ghost" 
-                                                                title="Hapus"
-                                                                onClick={() => handleDelete(project.id, project.nama_proyek)}
-                                                            >
-                                                                <Trash2 className="h-4 w-4 text-red-500" />
-                                                            </Button>
-                                                        )}
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
+                                        filteredProjects.map(project => {
+                                            
+                                            // LOGIKA UNTUK MENAMPILKAN TOMBOL SELESAI
+                                            const isAssignedAndNotDone = 
+                                                isDeveloper &&
+                                                project.status !== 'selesai' && 
+                                                !!project.developer_id && 
+                                                (String(project.developer_id).toUpperCase() === String(currentUserId).toUpperCase());
+
+                                            return (
+                                                <TableRow key={project.id}>
+                                                    <TableCell className="font-medium">{project.nama_proyek}</TableCell>
+                                                    <TableCell>{project.clients?.nama || '-'}</TableCell>
+                                                    <TableCell>
+                                                        {developerMap.get(project.developer_id)?.full_name || '-'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {project.fee_developer ? formatCurrency(Number(project.fee_developer)) : '-'}
+                                                    </TableCell>
+                                                    <TableCell>{formatCurrency(Number(project.harga))}</TableCell>
+                                                    <TableCell>
+                                                        {getStatusBadge(project.status)}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            
+                                                            {/* TOMBOL TANDAI SELESAI UNTUK DEVELOPER */}
+                                                            {isAssignedAndNotDone && (
+                                                                <Button 
+                                                                    size="sm" 
+                                                                    variant="default" 
+                                                                    title="Tandai Selesai"
+                                                                    onClick={() => handleMarkAsDone(project.id, project.nama_proyek)}
+                                                                    disabled={markAsDoneMutation.isPending}
+                                                                >
+                                                                    <CheckCircle2 className="h-4 w-4 mr-1" /> Selesai
+                                                                </Button>
+                                                            )}
+
+                                                            {canEditProject(project) && (
+                                                                <Button 
+                                                                    size="icon" 
+                                                                    variant="ghost" 
+                                                                    title="Edit"
+                                                                    onClick={() => handleEdit(project)}
+                                                                >
+                                                                    <Pencil className="h-4 w-4" />
+                                                                </Button>
+                                                            )}
+                                                            
+                                                            {isFullAccessRole && (
+                                                                <Button 
+                                                                    size="icon" 
+                                                                    variant="ghost" 
+                                                                    title="Hapus"
+                                                                    onClick={() => handleDelete(project.id, project.nama_proyek)}
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </Button>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })
                                     )}
                                 </TableBody>
                             </Table>

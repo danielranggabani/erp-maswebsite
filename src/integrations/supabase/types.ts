@@ -160,6 +160,48 @@ export type Database = {
         }
         Relationships: []
       }
+      developer_payments_tracking: { // DITAMBAHKAN
+        Row: {
+          id: string
+          project_id: string
+          developer_id: string
+          amount_paid: number
+          paid_at: string
+          notes: string | null
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          developer_id: string
+          amount_paid: number
+          paid_at?: string
+          notes?: string | null
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          developer_id?: string
+          amount_paid?: number
+          paid_at?: string
+          notes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "developer_payments_tracking_developer_id_fkey"
+            columns: ["developer_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "developer_payments_tracking_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       finances: {
         Row: {
           created_at: string
@@ -390,6 +432,7 @@ export type Database = {
           tanggal_mulai: string | null
           tanggal_selesai: string | null
           updated_at: string
+          fee_developer: number | null
         }
         Insert: {
           client_id: string
@@ -407,6 +450,7 @@ export type Database = {
           tanggal_mulai?: string | null
           tanggal_selesai?: string | null
           updated_at?: string
+          fee_developer?: number | null
         }
         Update: {
           client_id?: string
@@ -424,6 +468,7 @@ export type Database = {
           tanggal_mulai?: string | null
           tanggal_selesai?: string | null
           updated_at?: string
+          fee_developer?: number | null
         }
         Relationships: [
           {

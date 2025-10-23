@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 
 // Definisikan Tipe Data yang dibutuhkan
 type Profile = Database['public']['Tables']['profiles']['Row'];
-type ProjectRow = Database['public']['Tables']['projects']['Row'];
+type ProjectRow = Database['public']['Tables']['projects']['Row'] & { fee_developer: number | null }; 
 type UserRole = Database['public']['Enums']['user_role'];
 
 // Data Gabungan untuk Developer (Profile + Statistik)
@@ -20,8 +20,8 @@ interface DeveloperStats extends Profile {
     role: UserRole;
     active_projects_count: number;
     completed_projects_count: number;
-    pending_fee: number; // BARU: Total fee dari proyek yang belum selesai
-    total_fee_paid: number; // BARU: Total fee yang sudah dibayarkan (simulasi)
+    pending_fee: number; 
+    total_fee_paid: number;
 }
 
 // ======================= UTILITY: FORMATTING =======================
@@ -44,8 +44,8 @@ const useDeveloperStats = () => {
         queryFn: async () => {
             const [profilesRes, projectsRes, rolesRes] = await Promise.all([
                 supabase.from('profiles').select('id, full_name, avatar_url'),
-                // Ambil fee_developer dari projects
                 supabase.from('projects').select('developer_id, fee_developer, status'),
+                // RLS pada user_roles harus mengizinkan SELECT untuk ini berfungsi
                 supabase.from('user_roles').select('user_id, role').eq('role', 'developer'), 
             ]);
 
@@ -55,7 +55,7 @@ const useDeveloperStats = () => {
             
             const developerUserIds = rolesRes.data.map(r => r.user_id);
             const profilesMap = new Map(profilesRes.data.map(p => [p.id, p]));
-            const projects = projectsRes.data as ProjectRow[];
+            const projects = projectsRes.data as ProjectRow[]; 
             
             const statsMap = new Map<string, DeveloperStats>();
             
@@ -68,12 +68,12 @@ const useDeveloperStats = () => {
                     const activeProjectsCount = devProjects.filter(p => p.status !== 'selesai').length;
                     const completedProjectsCount = devProjects.filter(p => p.status === 'selesai').length;
                     
-                    // Hitung total pending fee
+                    // Hitung total pending fee: Proyek yang belum selesai
                     const pendingFee = devProjects
                         .filter(p => p.status !== 'selesai')
                         .reduce((sum, p) => sum + Number(p.fee_developer || 0), 0);
                         
-                    // Hitung total fee yang sudah dibayarkan (simulasi: diasumsikan semua yang selesai sudah dibayar)
+                    // Hitung total fee yang sudah dibayarkan (Simulasi: semua proyek 'selesai')
                     const totalFeePaid = devProjects
                         .filter(p => p.status === 'selesai')
                         .reduce((sum, p) => sum + Number(p.fee_developer || 0), 0);
@@ -102,7 +102,6 @@ const useDeveloperStats = () => {
 export default function Developers() {
     const { data: developerStats, isLoading } = useDeveloperStats();
     
-    // Menghitung ringkasan di dashboard developer (Fokus pada fee dan proyek)
     const totalDev = developerStats?.length || 0;
     const totalPendingFee = developerStats?.reduce((sum, dev) => sum + dev.pending_fee, 0) || 0;
     const totalPaidFee = developerStats?.reduce((sum, dev) => sum + dev.total_fee_paid, 0) || 0;
@@ -168,8 +167,8 @@ export default function Developers() {
                                             <TableHead>Developer</TableHead>
                                             <TableHead>Proyek Aktif</TableHead>
                                             <TableHead>Proyek Selesai</TableHead>
-                                            <TableHead>Pending Fee</TableHead> {/* BARU */}
-                                            <TableHead>Fee Terbayar</TableHead> {/* BARU */}
+                                            <TableHead>Pending Fee</TableHead> 
+                                            <TableHead>Fee Terbayar</TableHead> 
                                             <TableHead>Aksi</TableHead>
                                         </TableRow>
                                     </TableHeader>
