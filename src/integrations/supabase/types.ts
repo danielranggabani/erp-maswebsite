@@ -7,11 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "13.0.5" // Pastikan versi ini sesuai dengan Supabase Anda jika berbeda
-  }
   public: {
     Tables: {
       activity_logs: {
@@ -44,18 +39,84 @@ export type Database = {
         }
         Relationships: [
           {
-            // Pastikan relasi ke auth.users sudah benar jika user_id merujuk ke sana
             foreignKeyName: "activity_logs_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: "users" // Atau "profiles" jika user_id merujuk ke profiles
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
       }
+      ads_reports: {
+          Row: {
+              id: string
+              report_date: string // date
+              revenue: number // numeric
+              fee_payment: number // numeric
+              net_revenue: number // numeric (input manual/kalkulasi FE)
+              ads_spend: number // numeric
+              tax_11: number | null // numeric GENERATED (DEFAULT di skema Anda, bukan GENERATED STORED)
+              profit_loss: number | null // numeric GENERATED (DEFAULT di skema Anda, bukan GENERATED STORED)
+              roas: number | null // numeric GENERATED (DEFAULT di skema Anda, bukan GENERATED STORED)
+              leads: number // integer
+              total_purchase: number // integer
+              conv_percent: number | null // numeric GENERATED (DEFAULT di skema Anda, bukan GENERATED STORED)
+              cost_per_lead: number | null // numeric GENERATED (DEFAULT di skema Anda, bukan GENERATED STORED)
+              cost_per_purchase: number | null // numeric GENERATED (DEFAULT di skema Anda, bukan GENERATED STORED)
+              week: number | null // integer
+              month: string | null // text
+              created_at: string // timestamp with time zone
+              created_by: string | null // uuid
+          }
+          Insert: {
+              id?: string
+              report_date: string // date
+              revenue?: number // numeric
+              fee_payment?: number // numeric
+              net_revenue: number // numeric (kirim ini agar default terhitung benar)
+              ads_spend?: number // numeric
+              // Kolom default/generated tidak perlu di Insert jika DB menghitungnya
+              // tax_11?: number | null
+              // profit_loss?: number | null
+              // roas?: number | null
+              leads?: number // integer
+              total_purchase?: number // integer
+              // conv_percent?: number | null
+              // cost_per_lead?: number | null
+              // cost_per_purchase?: number | null
+              week?: number | null // integer
+              month?: string | null // text
+              created_at?: string // timestamp with time zone
+              created_by?: string | null // uuid
+          }
+          Update: {
+              id?: string
+              report_date?: string // date
+              revenue?: number // numeric
+              fee_payment?: number // numeric
+              net_revenue?: number // numeric (kirim ini agar default terhitung benar)
+              ads_spend?: number // numeric
+              // Kolom default/generated tidak perlu di Update jika DB menghitungnya
+              leads?: number // integer
+              total_purchase?: number // integer
+              week?: number | null // integer
+              month?: string | null // text
+              created_at?: string // timestamp with time zone
+              created_by?: string | null // uuid
+          }
+          Relationships: [
+            {
+              foreignKeyName: "ads_reports_created_by_fkey"
+              columns: ["created_by"]
+              isOneToOne: false
+              referencedRelation: "users"
+              referencedColumns: ["id"]
+            },
+          ]
+        }
       clients: {
         Row: {
-          alamat: string | null // Ditambahkan dari skema
+          alamat: string | null
           bisnis: string | null
           catatan: string | null
           created_at: string
@@ -64,13 +125,13 @@ export type Database = {
           id: string
           nama: string
           phone: string | null
-          renewal_date: string | null // Ditambahkan dari skema
+          renewal_date: string | null
           status: Database["public"]["Enums"]["client_status"] | null
           updated_at: string
           whatsapp: string | null
         }
         Insert: {
-          alamat?: string | null // Ditambahkan dari skema
+          alamat?: string | null
           bisnis?: string | null
           catatan?: string | null
           created_at?: string
@@ -79,13 +140,13 @@ export type Database = {
           id?: string
           nama: string
           phone?: string | null
-          renewal_date?: string | null // Ditambahkan dari skema
+          renewal_date?: string | null
           status?: Database["public"]["Enums"]["client_status"] | null
           updated_at?: string
           whatsapp?: string | null
         }
         Update: {
-          alamat?: string | null // Ditambahkan dari skema
+          alamat?: string | null
           bisnis?: string | null
           catatan?: string | null
           created_at?: string
@@ -94,18 +155,17 @@ export type Database = {
           id?: string
           nama?: string
           phone?: string | null
-          renewal_date?: string | null // Ditambahkan dari skema
+          renewal_date?: string | null
           status?: Database["public"]["Enums"]["client_status"] | null
           updated_at?: string
           whatsapp?: string | null
         }
         Relationships: [
           {
-            // Pastikan relasi ke auth.users sudah benar jika created_by merujuk ke sana
             foreignKeyName: "clients_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -146,12 +206,11 @@ export type Database = {
             referencedRelation: "clients"
             referencedColumns: ["id"]
           },
-           {
-            // Pastikan relasi ke auth.users sudah benar jika created_by merujuk ke sana
+          {
             foreignKeyName: "communications_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -167,9 +226,8 @@ export type Database = {
           rekening: string | null
           signature_url: string | null
           updated_at: string
-          // Tambahkan kolom email dan telp jika ada di skema
-          email?: string | null;
-          telp?: string | null;
+          email?: string | null // Tambahan dari asumsi sebelumnya
+          telp?: string | null // Tambahan dari asumsi sebelumnya
         }
         Insert: {
           alamat?: string | null
@@ -181,8 +239,8 @@ export type Database = {
           rekening?: string | null
           signature_url?: string | null
           updated_at?: string
-          email?: string | null;
-          telp?: string | null;
+          email?: string | null
+          telp?: string | null
         }
         Update: {
           alamat?: string | null
@@ -194,42 +252,42 @@ export type Database = {
           rekening?: string | null
           signature_url?: string | null
           updated_at?: string
-          email?: string | null;
-          telp?: string | null;
+          email?: string | null
+          telp?: string | null
         }
         Relationships: []
       }
-      developer_payments_tracking: { // DARI SKEMA ANDA
+      developer_payments_tracking: {
         Row: {
-          id: string
-          project_id: string
-          developer_id: string
           amount_paid: number
-          paid_at: string
+          developer_id: string
+          id: string
           notes: string | null
+          paid_at: string
+          project_id: string
         }
         Insert: {
-          id?: string
-          project_id: string
-          developer_id: string
           amount_paid: number
-          paid_at?: string
+          developer_id: string
+          id?: string
           notes?: string | null
+          paid_at?: string
+          project_id: string
         }
         Update: {
-          id?: string
-          project_id?: string
-          developer_id?: string
           amount_paid?: number
-          paid_at?: string
+          developer_id?: string
+          id?: string
           notes?: string | null
+          paid_at?: string
+          project_id?: string
         }
         Relationships: [
           {
             foreignKeyName: "developer_payments_tracking_developer_id_fkey"
             columns: ["developer_id"]
             isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
           {
@@ -249,7 +307,7 @@ export type Database = {
           invoice_id: string | null
           kategori: Database["public"]["Enums"]["finance_category"]
           keterangan: string | null
-          nominal: number // Ubah dari string/Decimal jika perlu
+          nominal: number
           tanggal: string
           tipe: Database["public"]["Enums"]["finance_type"]
           updated_at: string
@@ -280,25 +338,24 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "finances_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "finances_invoice_id_fkey"
             columns: ["invoice_id"]
             isOneToOne: false
             referencedRelation: "invoices"
             referencedColumns: ["id"]
           },
-           {
-            // Pastikan relasi ke auth.users sudah benar jika created_by merujuk ke sana
-            foreignKeyName: "finances_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
-            referencedColumns: ["id"]
-          },
         ]
       }
       invoices: {
         Row: {
-          amount: number // Ubah dari string/Decimal jika perlu
+          amount: number
           created_at: string
           created_by: string | null
           id: string
@@ -341,18 +398,17 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "invoices_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "invoices_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-           {
-            // Pastikan relasi ke auth.users sudah benar jika created_by merujuk ke sana
-            foreignKeyName: "invoices_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -367,8 +423,8 @@ export type Database = {
           id: string
           kontak: string
           nama: string
-          status: Database["public"]["Enums"]["lead_status"] | null
           sumber: Database["public"]["Enums"]["lead_source"]
+          status: Database["public"]["Enums"]["lead_status"] | null
           updated_at: string
         }
         Insert: {
@@ -380,8 +436,8 @@ export type Database = {
           id?: string
           kontak: string
           nama: string
-          status?: Database["public"]["Enums"]["lead_status"] | null
           sumber: Database["public"]["Enums"]["lead_source"]
+          status?: Database["public"]["Enums"]["lead_status"] | null
           updated_at?: string
         }
         Update: {
@@ -393,8 +449,8 @@ export type Database = {
           id?: string
           kontak?: string
           nama?: string
-          status?: Database["public"]["Enums"]["lead_status"] | null
           sumber?: Database["public"]["Enums"]["lead_source"]
+          status?: Database["public"]["Enums"]["lead_status"] | null
           updated_at?: string
         }
         Relationships: [
@@ -405,12 +461,11 @@ export type Database = {
             referencedRelation: "clients"
             referencedColumns: ["id"]
           },
-           {
-            // Pastikan relasi ke auth.users sudah benar jika created_by merujuk ke sana
+          {
             foreignKeyName: "leads_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -421,7 +476,7 @@ export type Database = {
           deskripsi: string | null
           estimasi_hari: number | null
           fitur: Json | null
-          harga: number // Ubah dari string/Decimal jika perlu
+          harga: number
           id: string
           is_active: boolean | null
           nama: string
@@ -477,133 +532,40 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-           {
-             foreignKeyName: "profiles_id_fkey" // Sesuaikan nama constraint
-             columns: ["id"]
-             isOneToOne: true
-             referencedRelation: "users"
-             referencedColumns: ["id"]
-           }
-        ]
-      }
-      projects: {
-Row: {
-    client_id: string
-    created_at: string
-    created_by: string | null
-    developer_id: string | null
-    estimasi_hari: number | null
-    fee_developer: number | null
-    harga: number
-    id: string
-    is_archived: boolean // *** DITAMBAHKAN ***
-    nama_proyek: string
-    package_id: string | null
-    progress: number | null
-    progress_notes: string | null
-    ruang_lingkup: string | null
-    status: Database["public"]["Enums"]["project_status"] | null
-    tanggal_mulai: string | null
-    tanggal_selesai: string | null
-    updated_at: string
-  }
-  Insert: {
-    client_id: string
-    created_at?: string
-    created_by?: string | null
-    developer_id?: string | null
-    estimasi_hari?: number | null
-    fee_developer?: number | null
-    harga: number
-    id?: string
-    is_archived?: boolean // *** DITAMBAHKAN ***
-    nama_proyek: string
-    package_id?: string | null
-    progress?: number | null
-    progress_notes?: string | null
-    ruang_lingkup?: string | null
-    status?: Database["public"]["Enums"]["project_status"] | null
-    tanggal_mulai?: string | null
-    tanggal_selesai?: string | null
-    updated_at?: string
-  }
-  Update: {
-    client_id?: string
-    created_at?: string
-    created_by?: string | null
-    developer_id?: string | null
-    estimasi_hari?: number | null
-    fee_developer?: number | null
-    harga?: number
-    id?: string
-    is_archived?: boolean // *** DITAMBAHKAN ***
-    nama_proyek?: string
-    package_id?: string | null
-    progress?: number | null
-    progress_notes?: string | null
-    ruang_lingkup?: string | null
-    status?: Database["public"]["Enums"]["project_status"] | null
-    tanggal_mulai?: string | null
-    tanggal_selesai?: string | null
-    updated_at?: string
-  }
-        Relationships: [
           {
-            foreignKeyName: "projects_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "projects_package_id_fkey"
-            columns: ["package_id"]
-            isOneToOne: false
-            referencedRelation: "packages"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "projects_developer_id_fkey"
-            columns: ["developer_id"]
-            isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "projects_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
+            foreignKeyName: "profiles_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
       }
-      // *** DEFINISI TABEL BARU project_checklists ***
       project_checklists: {
         Row: {
+          created_at: string
           id: string
+          is_done: boolean
           project_id: string
           title: string
-          is_done: boolean
-          created_at: string
           updated_at: string
           updated_by: string | null
         }
         Insert: {
+          created_at?: string
           id?: string
+          is_done?: boolean
           project_id: string
           title: string
-          is_done?: boolean
-          created_at?: string
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
+          created_at?: string
           id?: string
+          is_done?: boolean
           project_id?: string
           title?: string
-          is_done?: boolean
-          created_at?: string
           updated_at?: string
           updated_by?: string | null
         }
@@ -619,12 +581,93 @@ Row: {
             foreignKeyName: "project_checklists_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
       }
-      // *** AKHIR DEFINISI TABEL BARU ***
+      projects: {
+        Row: {
+          client_id: string
+          created_at: string
+          developer_id: string | null
+          estimasi_hari: number | null
+          fee_developer: number | null
+          harga: number
+          id: string
+          is_archived: boolean
+          nama_proyek: string
+          package_id: string | null
+          progress: number | null
+          progress_notes: string | null
+          ruang_lingkup: string | null
+          status: Database["public"]["Enums"]["project_status"] | null
+          tanggal_mulai: string | null
+          tanggal_selesai: string | null
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          developer_id?: string | null
+          estimasi_hari?: number | null
+          fee_developer?: number | null
+          harga: number
+          id?: string
+          is_archived?: boolean
+          nama_proyek: string
+          package_id?: string | null
+          progress?: number | null
+          progress_notes?: string | null
+          ruang_lingkup?: string | null
+          status?: Database["public"]["Enums"]["project_status"] | null
+          tanggal_mulai?: string | null
+          tanggal_selesai?: string | null
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          developer_id?: string | null
+          estimasi_hari?: number | null
+          fee_developer?: number | null
+          harga?: number
+          id?: string
+          is_archived?: boolean
+          nama_proyek?: string
+          package_id?: string | null
+          progress?: number | null
+          progress_notes?: string | null
+          ruang_lingkup?: string | null
+          status?: Database["public"]["Enums"]["project_status"] | null
+          tanggal_mulai?: string | null
+          tanggal_selesai?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projects_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_developer_id_fkey"
+            columns: ["developer_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       spks: {
         Row: {
           created_at: string
@@ -661,18 +704,17 @@ Row: {
         }
         Relationships: [
           {
+            foreignKeyName: "spks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "spks_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-           {
-            // Pastikan relasi ke auth.users sudah benar jika created_by merujuk ke sana
-            foreignKeyName: "spks_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -698,12 +740,12 @@ Row: {
         }
         Relationships: [
           {
-            foreignKeyName: "user_roles_user_id_fkey" // Sesuaikan nama constraint
+            foreignKeyName: "user_roles_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: "users" // Atau "profiles"
+            referencedRelation: "users" // Merujuk ke tabel 'users' di skema 'auth'
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
     }
@@ -711,39 +753,40 @@ Row: {
       [_ in never]: never
     }
     Functions: {
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["user_role"]
-          _user_id: string
-        }
+      is_admin: {
+        Args: Record<PropertyKey, never>
         Returns: boolean
       }
-      // Tambahkan definisi fungsi update_project_progress jika ingin bisa dipanggil via RPC
-      // update_project_progress: {
-      //   Args: Record<string, unknown> // Atau definisikan argumen jika ada
-      //   Returns: undefined // Atau tipe return yang sesuai
-      // }
+      is_admin_or_finance: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      is_finance: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
     }
     Enums: {
       client_status: "prospek" | "negosiasi" | "deal" | "aktif" | "selesai"
       finance_category:
         | "pendapatan"
         | "operasional"
-        | "pajak"
         | "gaji"
+        | "pajak"
         | "hosting"
         | "iklan"
         | "lainnya"
       finance_type: "income" | "expense"
-      invoice_status: "draft" | "menunggu_dp" | "lunas" | "overdue"
-      lead_source:
-        | "facebook"
-        | "google"
-        | "whatsapp"
-        | "website"
-        | "referral"
-        | "lainnya"
-      lead_status: "baru" | "tertarik" | "negosiasi" | "closing" | "gagal"
+      invoice_status:
+        | "draft"
+        | "menunggu_dp"
+        | "lunas_dp"
+        | "menunggu_pelunasan"
+        | "lunas"
+        | "overdue"
+        | "batal"
+      lead_source: "website" | "referral" | "iklan" | "sosmed" | "lainnya"
+      lead_status: "baru" | "follow_up" | "negosiasi" | "deal" | "gagal"
       project_status:
         | "briefing"
         | "desain"
@@ -751,7 +794,7 @@ Row: {
         | "revisi"
         | "launch"
         | "selesai"
-      user_role: "admin" | "cs" | "developer" | "finance"
+      user_role: "admin" | "cs" | "developer" | "finance" // Pastikan enum ini ada di DB Anda
     }
     CompositeTypes: {
       [_ in never]: never
@@ -759,160 +802,50 @@ Row: {
   }
 }
 
-// Bagian bawah file (generic types) biarkan sama
-// ... (Kode Types, TablesInsert, TablesUpdate, Enums, CompositeTypes, Constants) ...
+// Helper types (tidak perlu diubah)
+type PublicSchema = Database[Extract<keyof Database, "public">]
+// ... (Tables, TablesInsert, TablesUpdate, Enums sama seperti sebelumnya) ...
+export type Tables< PublicTableNameOrOptions extends | keyof (PublicSchema["Tables"] & PublicSchema["Views"]) | { schema: keyof Database }, TableName extends PublicTableNameOrOptions extends { schema: keyof Database } ? keyof (Database[PublicTableNameOrOptions["schema"]]["Tables"] & Database[PublicTableNameOrOptions["schema"]]["Views"]) : never = never > = PublicTableNameOrOptions extends { schema: keyof Database } ? (Database[PublicTableNameOrOptions["schema"]]["Tables"] & Database[PublicTableNameOrOptions["schema"]]["Views"])[TableName] extends { Row: infer R } ? R : never : PublicTableNameOrOptions extends keyof (PublicSchema["Tables"] & PublicSchema["Views"]) ? (PublicSchema["Tables"] & PublicSchema["Views"])[PublicTableNameOrOptions] extends { Row: infer R } ? R : never : never
+export type TablesInsert< PublicTableNameOrOptions extends | keyof PublicSchema["Tables"] | { schema: keyof Database }, TableName extends PublicTableNameOrOptions extends { schema: keyof Database } ? keyof Database[PublicTableNameOrOptions["schema"]]["Tables"] : never = never > = PublicTableNameOrOptions extends { schema: keyof Database } ? Database[PublicTableNameOrOptions["schema"]]["Tables"][TableName] extends { Insert: infer I } ? I : never : PublicTableNameOrOptions extends keyof PublicSchema["Tables"] ? PublicSchema["Tables"][PublicTableNameOrOptions] extends { Insert: infer I } ? I : never : never
+export type TablesUpdate< PublicTableNameOrOptions extends | keyof PublicSchema["Tables"] | { schema: keyof Database }, TableName extends PublicTableNameOrOptions extends { schema: keyof Database } ? keyof Database[PublicTableNameOrOptions["schema"]]["Tables"] : never = never > = PublicTableNameOrOptions extends { schema: keyof Database } ? Database[PublicTableNameOrOptions["schema"]]["Tables"][TableName] extends { Update: infer U } ? U : never : PublicTableNameOrOptions extends keyof PublicSchema["Tables"] ? PublicSchema["Tables"][PublicTableNameOrOptions] extends { Update: infer U } ? U : never : never
+export type Enums< PublicEnumNameOrOptions extends | keyof PublicSchema["Enums"] | { schema: keyof Database }, EnumName extends PublicEnumNameOrOptions extends { schema: keyof Database } ? keyof Database[PublicEnumNameOrOptions["schema"]]["Enums"] : never = never > = PublicEnumNameOrOptions extends { schema: keyof Database } ? Database[PublicEnumNameOrOptions["schema"]]["Enums"][EnumName] : PublicEnumNameOrOptions extends keyof PublicSchema["Enums"] ? PublicSchema["Enums"][PublicEnumNameOrOptions] : never
 
-// Pastikan bagian ini ada di akhir file
-type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+// --- Alias Tipe Spesifik ---
+export type AdsReport = Database['public']['Tables']['ads_reports']['Row'];
+export type AdsReportInsert = Database['public']['Tables']['ads_reports']['Insert'];
+export type Client = Database['public']['Tables']['clients']['Row'];
+export type ClientInsert = Database['public']['Tables']['clients']['Insert'];
+export type Communication = Database['public']['Tables']['communications']['Row'];
+export type CommunicationInsert = Database['public']['Tables']['communications']['Insert'];
+export type Company = Database['public']['Tables']['companies']['Row'];
+export type CompanyInsert = Database['public']['Tables']['companies']['Insert'];
+export type DeveloperPaymentTracking = Database['public']['Tables']['developer_payments_tracking']['Row'];
+export type DeveloperPaymentTrackingInsert = Database['public']['Tables']['developer_payments_tracking']['Insert'];
+export type Finance = Database['public']['Tables']['finances']['Row'];
+export type FinanceInsert = Database['public']['Tables']['finances']['Insert'];
+export type Invoice = Database['public']['Tables']['invoices']['Row'];
+export type InvoiceInsert = Database['public']['Tables']['invoices']['Insert'];
+export type Lead = Database['public']['Tables']['leads']['Row'];
+export type LeadInsert = Database['public']['Tables']['leads']['Insert'];
+export type Package = Database['public']['Tables']['packages']['Row'];
+export type PackageInsert = Database['public']['Tables']['packages']['Insert'];
+export type Profile = Database['public']['Tables']['profiles']['Row'];
+export type ProfileInsert = Database['public']['Tables']['profiles']['Insert'];
+export type ProjectChecklist = Database['public']['Tables']['project_checklists']['Row'];
+export type ProjectChecklistInsert = Database['public']['Tables']['project_checklists']['Insert'];
+export type Project = Database['public']['Tables']['projects']['Row'];
+export type ProjectInsert = Database['public']['Tables']['projects']['Insert'];
+export type SPK = Database['public']['Tables']['spks']['Row'];
+export type SPKInsert = Database['public']['Tables']['spks']['Insert'];
+export type UserRole = Database['public']['Tables']['user_roles']['Row'];
+export type UserRoleInsert = Database['public']['Tables']['user_roles']['Insert'];
 
-export type Tables<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
-      Row: infer R
-    }
-    ? R
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
-      }
-      ? R
-      : never
-    : never
-
-export type TablesInsert<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
-    }
-    ? I
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I
-      }
-      ? I
-      : never
-    : never
-
-export type TablesUpdate<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
-    }
-    ? U
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U
-      }
-      ? U
-      : never
-    : never
-
-export type Enums<
-  DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
-> = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
-
-export type CompositeTypes<
-  PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
-> = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
-
-// Pastikan bagian Constants juga ada jika Anda menggunakannya
-export const Constants = {
-  public: {
-    Enums: {
-      client_status: ["prospek", "negosiasi", "deal", "aktif", "selesai"],
-      finance_category: [
-        "pendapatan",
-        "operasional",
-        "pajak",
-        "gaji",
-        "hosting",
-        "iklan",
-        "lainnya",
-      ],
-      finance_type: ["income", "expense"],
-      invoice_status: ["draft", "menunggu_dp", "lunas", "overdue"],
-      lead_source: [
-        "facebook",
-        "google",
-        "whatsapp",
-        "website",
-        "referral",
-        "lainnya",
-      ],
-      lead_status: ["baru", "tertarik", "negosiasi", "closing", "gagal"],
-      project_status: [
-        "briefing",
-        "desain",
-        "development",
-        "revisi",
-        "launch",
-        "selesai",
-      ],
-      user_role: ["admin", "cs", "developer", "finance"],
-    },
-  },
-} as const;
+// Enums
+export type client_status = Database['public']['Enums']['client_status'];
+export type finance_category = Database['public']['Enums']['finance_category'];
+export type finance_type = Database['public']['Enums']['finance_type'];
+export type invoice_status = Database['public']['Enums']['invoice_status'];
+export type lead_source = Database['public']['Enums']['lead_source'];
+export type lead_status = Database['public']['Enums']['lead_status'];
+export type project_status = Database['public']['Enums']['project_status'];
+export type user_role = Database['public']['Enums']['user_role'];

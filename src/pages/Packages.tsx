@@ -1,9 +1,21 @@
 import DashboardLayout from '@/components/layout/DashboardLayout';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button'; // Import buttonVariants
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+// Import AlertDialog components
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { PlusCircle, Check, Pencil, Trash2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -12,7 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import type { Database } from '@/integrations/supabase/types';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'; 
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 type Package = Database['public']['Tables']['packages']['Row'];
 type PackageInsert = Database['public']['Tables']['packages']['Insert'];
@@ -47,27 +59,45 @@ export default function Packages() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: packages = [], isLoading } = usePackageData();
-  
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPackage, setEditingPackage] = useState<Package | null>(null);
-  
+
+  // State untuk AlertDialog Hapus
+  const [packageToDelete, setPackageToDelete] = useState<Package | null>(null);
+
   const [formData, setFormData] = useState({
     nama: '',
     harga: '',
     deskripsi: '',
-    fitur: '', // JSON string representation
+    fitur: '[]', // Default ke string array JSON kosong
     estimasi_hari: '',
     is_active: true,
   });
 
   const packageMutation = useMutation({
-    mutationFn: async (data: PackageInsert & { id?: string }) => {
-        const packageData: PackageInsert = {
+    mutationFn: async (data: Partial<PackageInsert> & { id?: string }) => {
+        let fiturJson = null;
+        try {
+            // Coba parse JSON, pastikan tidak error jika input kosong atau tidak valid
+            if (data.fitur && typeof data.fitur === 'string' && data.fitur.trim()) {
+                 fiturJson = JSON.parse(data.fitur);
+                 if (!Array.isArray(fiturJson)) {
+                      throw new Error("Format Fitur harus berupa array JSON, contoh: [\"Fitur A\", \"Fitur B\"]");
+                 }
+            } else {
+                fiturJson = []; // Default ke array kosong jika input kosong
+            }
+        } catch (e: any) {
+            console.error("JSON Parse Error:", e);
+            throw new Error(`Format Fitur tidak valid: ${e.message}. Contoh: ["Fitur A", "Fitur B"]`);
+        }
+
+        const packageData: Partial<PackageInsert> = {
             nama: data.nama,
-            harga: parseFloat(data.harga.toString()),
+            harga: parseFloat(data.harga?.toString() || '0'),
             deskripsi: data.deskripsi || null,
-            // Penting: Parse string JSON dari textarea
-            fitur: data.fitur ? JSON.parse(data.fitur.toString()) : null, 
+            fitur: fiturJson,
             estimasi_hari: data.estimasi_hari ? parseInt(data.estimasi_hari.toString()) : null,
             is_active: data.is_active,
         };
@@ -79,25 +109,30 @@ export default function Packages() {
                 .eq('id', data.id);
             if (error) throw error;
         } else {
-            const { error } = await supabase.from('packages').insert(packageData);
+             // Pastikan field wajib ada saat insert
+             if (!packageData.nama || packageData.harga == null) {
+                  throw new Error("Nama paket dan Harga wajib diisi.");
+             }
+            const { error } = await supabase.from('packages').insert(packageData as PackageInsert);
             if (error) throw error;
         }
     },
     onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ['packages'] });
-        queryClient.invalidateQueries({ queryKey: ['packages-active'] }); // Invalidate list aktif
-        toast({ title: editingPackage ? 'Package updated successfully' : 'Package created successfully' });
+        queryClient.invalidateQueries({ queryKey: ['packages-active'] });
+        toast({ title: editingPackage ? 'Paket berhasil diupdate' : 'Paket berhasil dibuat' });
         setDialogOpen(false);
         resetForm();
     },
     onError: (error: any) => {
-        toast({ 
-            title: 'Error', 
-            description: `Gagal menyimpan paket. Pastikan format Fitur adalah JSON array: ["f1", "f2"]. Detail: ${error.message}`, 
-            variant: 'destructive' 
+        toast({
+            title: 'Error Simpan Paket',
+            description: error.message,
+            variant: 'destructive'
         });
     }
   });
+
 
   const handleDeleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -107,10 +142,12 @@ export default function Packages() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['packages'] });
       queryClient.invalidateQueries({ queryKey: ['packages-active'] });
-      toast({ title: 'Package deleted successfully' });
+      toast({ title: 'Paket berhasil dihapus' });
+       setPackageToDelete(null); // Tutup dialog konfirmasi
     },
     onError: (error: any) => {
-        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        toast({ title: 'Error Hapus Paket', description: error.message, variant: 'destructive' });
+         setPackageToDelete(null); // Tutup dialog konfirmasi walau error
     }
   });
 
@@ -120,15 +157,20 @@ export default function Packages() {
         toast({ title: 'Error', description: 'Harga harus berupa angka positif.', variant: 'destructive' });
         return;
     }
-    
-    // Kirim data, termasuk ID jika sedang mengedit
+
     packageMutation.mutate({ ...formData, id: editingPackage?.id });
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this package?')) {
-      handleDeleteMutation.mutate(id);
-    }
+  // Fungsi untuk membuka dialog konfirmasi hapus
+  const confirmDelete = (pkg: Package) => {
+      setPackageToDelete(pkg);
+  };
+
+  // Fungsi yang dipanggil saat tombol Hapus di AlertDialog diklik
+  const executeDelete = () => {
+      if (packageToDelete) {
+          handleDeleteMutation.mutate(packageToDelete.id);
+      }
   };
 
   const resetForm = () => {
@@ -136,7 +178,7 @@ export default function Packages() {
       nama: '',
       harga: '',
       deskripsi: '',
-      fitur: '',
+      fitur: '[]', // Reset ke string array JSON kosong
       estimasi_hari: '',
       is_active: true,
     });
@@ -149,24 +191,20 @@ export default function Packages() {
       nama: pkg.nama,
       harga: pkg.harga.toString(),
       deskripsi: pkg.deskripsi || '',
-      // Penting: Ubah JSON object menjadi string berformat untuk diedit di textarea
-      fitur: pkg.fitur ? JSON.stringify(pkg.fitur, null, 2) : '[]',
+      fitur: pkg.fitur ? JSON.stringify(pkg.fitur, null, 2) : '[]', // Format JSON untuk diedit
       estimasi_hari: pkg.estimasi_hari?.toString() || '',
-      is_active: pkg.is_active || true,
+      is_active: pkg.is_active ?? true, // Handle null case for is_active
     });
     setDialogOpen(true);
   };
 
-  // Utility untuk mem-parsing JSON fitur menjadi array string untuk display
   const parseFitur = (fitur: any): string[] => {
     if (Array.isArray(fitur)) return fitur.map(f => String(f));
     if (typeof fitur === 'string') {
         try {
             const parsed = JSON.parse(fitur);
             if (Array.isArray(parsed)) return parsed.map(f => String(f));
-        } catch (e) {
-            // Fallback jika string bukan JSON valid
-        }
+        } catch (e) {}
     }
     return [];
   };
@@ -176,26 +214,29 @@ export default function Packages() {
       <div className="container mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">Packages</h2>
+            <h2 className="text-3xl font-bold tracking-tight">Paket Website</h2>
             <p className="text-muted-foreground">
-              Manage website package offerings
+              Kelola penawaran paket website Anda
             </p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog open={dialogOpen} onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) resetForm(); // Reset form saat dialog ditutup
+          }}>
             <DialogTrigger asChild>
-              <Button onClick={resetForm}>
+              <Button onClick={() => { setEditingPackage(null); resetForm(); }}> {/* Pastikan reset form saat buka dialog baru */}
                 <PlusCircle className="mr-2 h-4 w-4" />
-                Create Package
+                Buat Paket Baru
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>{editingPackage ? 'Edit Package' : 'Create Package'}</DialogTitle>
+                <DialogTitle>{editingPackage ? 'Edit Paket' : 'Buat Paket Baru'}</DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-4"> {/* Tambah scroll */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="nama">Package Name</Label>
+                    <Label htmlFor="nama">Nama Paket *</Label>
                     <Input
                       id="nama"
                       value={formData.nama}
@@ -204,7 +245,7 @@ export default function Packages() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="harga">Price (Rp)</Label>
+                    <Label htmlFor="harga">Harga (Rp) *</Label>
                     <Input
                       id="harga"
                       type="number"
@@ -215,7 +256,7 @@ export default function Packages() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="deskripsi">Description</Label>
+                  <Label htmlFor="deskripsi">Deskripsi</Label>
                   <Textarea
                     id="deskripsi"
                     value={formData.deskripsi}
@@ -224,19 +265,19 @@ export default function Packages() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="fitur">Features (JSON array)</Label>
+                  <Label htmlFor="fitur">Fitur (Format JSON Array)</Label>
                   <Textarea
                     id="fitur"
                     value={formData.fitur}
                     onChange={(e) => setFormData({ ...formData, fitur: e.target.value })}
-                    placeholder='["Fitur 1", "Fitur 2", "Fitur 3"]'
+                    placeholder='Contoh: ["Gratis Domain .com", "SSL Gratis", "5 Halaman Website"]'
                     rows={4}
                   />
-                  <p className='text-xs text-muted-foreground'>* Pastikan formatnya adalah JSON Array yang valid.</p>
+                  <p className='text-xs text-muted-foreground'>* Wajib dalam format JSON Array: ["item1", "item2"]. Kosongkan jika tidak ada.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="estimasi_hari">Estimated Days</Label>
+                      <Label htmlFor="estimasi_hari">Estimasi Hari Pengerjaan</Label>
                       <Input
                         id="estimasi_hari"
                         type="number"
@@ -250,16 +291,16 @@ export default function Packages() {
                         checked={formData.is_active}
                         onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
                       />
-                      <Label htmlFor="is_active">Active Package</Label>
+                      <Label htmlFor="is_active">Paket Aktif</Label>
                     </div>
                 </div>
-                
+
                 <DialogFooter>
                     <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                        Cancel
+                        Batal
                     </Button>
                     <Button type="submit" disabled={packageMutation.isPending}>
-                        {packageMutation.isPending ? 'Processing...' : (editingPackage ? 'Update' : 'Create')}
+                        {packageMutation.isPending ? 'Memproses...' : (editingPackage ? 'Update Paket' : 'Buat Paket')}
                     </Button>
                 </DialogFooter>
               </form>
@@ -267,52 +308,58 @@ export default function Packages() {
           </Dialog>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {isLoading ? (
-            <p>Loading packages...</p>
+            <p className="col-span-full text-center text-muted-foreground">Memuat paket...</p>
           ) : packages.length === 0 ? (
-            <p className="col-span-3 text-center text-muted-foreground">No packages yet.</p>
+            <p className="col-span-full text-center text-muted-foreground">Belum ada paket dibuat.</p>
           ) : (
             packages.map((pkg) => (
-              <Card key={pkg.id} className={!pkg.is_active ? 'opacity-60' : ''}>
+              <Card key={pkg.id} className={`flex flex-col ${!pkg.is_active ? 'opacity-60' : ''}`}>
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div>
                       <CardTitle>{pkg.nama}</CardTitle>
-                      <CardDescription className="mt-2">
+                      <CardDescription className="mt-2 text-lg font-semibold text-primary">
                         {formatCurrency(Number(pkg.harga))}
                       </CardDescription>
                     </div>
                     <Badge variant={pkg.is_active ? 'default' : 'secondary'}>
-                      {pkg.is_active ? 'Active' : 'Inactive'}
+                      {pkg.is_active ? 'Aktif' : 'Nonaktif'}
                     </Badge>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground">{pkg.deskripsi}</p>
+                <CardContent className="space-y-4 flex-1 flex flex-col"> {/* Flex grow */}
+                  <p className="text-sm text-muted-foreground flex-1">{pkg.deskripsi}</p> {/* Flex grow */}
                   {pkg.estimasi_hari && (
                     <p className="text-sm">
-                      <strong>Estimation:</strong> {pkg.estimasi_hari} days
+                      <strong>Estimasi:</strong> {pkg.estimasi_hari} hari
                     </p>
                   )}
-                  {pkg.fitur && (
-                    <ul className="space-y-2">
+                  {pkg.fitur && parseFitur(pkg.fitur).length > 0 && (
+                    <ul className="space-y-1.5 pt-2 border-t mt-auto"> {/* mt-auto */}
+                     <Label className="text-xs text-muted-foreground">Fitur Utama:</Label>
                       {parseFitur(pkg.fitur).map((feature, idx) => (
                         <li key={idx} className="flex items-start text-sm">
-                          <Check className="mr-2 h-4 w-4 text-primary mt-0.5 shrink-0" />
+                          <Check className="mr-2 h-4 w-4 text-green-500 mt-0.5 shrink-0" />
                           <span className='flex-1'>{feature}</span>
                         </li>
                       ))}
                     </ul>
                   )}
-                  <div className="flex gap-2 pt-4">
-                    <Button size="sm" variant="outline" onClick={() => openEditDialog(pkg)}>
+                  {/* Pindahkan tombol ke bawah */}
+                   <div className="flex gap-2 pt-4 border-t mt-auto"> {/* mt-auto */}
+                    <Button size="sm" variant="outline" onClick={() => openEditDialog(pkg)} title="Edit Paket">
                       <Pencil className="h-4 w-4" />
                     </Button>
+                     {/* Tombol Hapus sekarang memicu AlertDialog */}
                     <Button
                       size="sm"
-                      variant="destructive"
-                      onClick={() => handleDelete(pkg.id)}
+                      variant="ghost" // Ganti ke ghost untuk konsistensi
+                      onClick={() => confirmDelete(pkg)} // Panggil confirmDelete
+                      title="Hapus Paket"
+                      className="text-destructive hover:bg-destructive/10"
+                      disabled={handleDeleteMutation.isPending && packageToDelete?.id === pkg.id}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -322,6 +369,29 @@ export default function Packages() {
             ))
           )}
         </div>
+
+         {/* AlertDialog untuk Konfirmasi Hapus Paket */}
+         <AlertDialog open={!!packageToDelete} onOpenChange={() => setPackageToDelete(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                <AlertDialogTitle>Hapus Paket?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    Anda yakin ingin menghapus paket "{packageToDelete?.nama}"? Tindakan ini tidak dapat dibatalkan.
+                </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                <AlertDialogCancel>Batal</AlertDialogCancel>
+                <AlertDialogAction
+                    onClick={executeDelete}
+                    disabled={handleDeleteMutation.isPending}
+                     className={buttonVariants({ variant: "destructive" })}
+                >
+                    {handleDeleteMutation.isPending ? 'Menghapus...' : 'Ya, Hapus Paket'}
+                </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
       </div>
     </DashboardLayout>
   );

@@ -1,67 +1,60 @@
+// src/App.tsx
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider, useAuth } from './lib/auth';
+import AuthPage from './pages/Auth';
+import Dashboard from './pages/Dashboard';
+import Clients from './pages/Clients';
+import Projects from './pages/Projects';
+import Invoices from './pages/Invoices';
+import Finance from './pages/Finance';
+import Developers from './pages/Developers';
+import Packages from './pages/Packages';
+import SPK from './pages/SPK';
+import Leads from './pages/Leads';
+import Settings from './pages/Settings';
+import AdsReport from './pages/AdsReport';
+import NotFound from './pages/NotFound';
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AuthProvider } from "@/lib/auth";
-import Index from "./pages/Index";
-import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
-import Clients from "./pages/Clients";
-import Projects from "./pages/Projects";
-import Invoices from "./pages/Invoices";
-import SPK from "./pages/SPK";
-import Finance from "./pages/Finance";
-import Leads from "./pages/Leads";
-import Packages from "./pages/Packages";
-import Settings from "./pages/Settings";
-import Developers from "./pages/Developers";
-import NotFound from "./pages/NotFound";
-import { RoleGuard } from "@/components/layout/RoleGuard"; 
-import { UserRole } from "./hooks/useRoles"; 
+// --- PERBAIKAN IMPORT DI SINI ---
+import { RoleGuard } from './components/layout/RoleGuard'; // Gunakan kurung kurawal {}
 
 const queryClient = new QueryClient();
 
-// Definisikan peran untuk setiap halaman
-const ADMIN_ROLES: UserRole[] = ['admin'];
-const CS_ROLES: UserRole[] = ['admin', 'cs'];
-const DEVELOPER_ROLES: UserRole[] = ['admin', 'developer'];
-const FINANCE_ROLES: UserRole[] = ['admin', 'finance'];
-const CS_DEV_ROLES: UserRole[] = ['admin', 'cs', 'developer'];
-const DEV_MGMT_ROLES: UserRole[] = ['admin', 'cs', 'finance']; 
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  // Tampilkan loading indicator yang lebih baik jika diperlukan
+  if (loading) return <div className="flex h-screen items-center justify-center">Memuat sesi...</div>;
+  return user ? <>{children}</> : <Navigate to="/auth" replace />;
+}
 
-
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AuthProvider>
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <Router>
           <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/auth" element={<Auth />} />
-            
-            {/* Rute yang Dilindungi */}
-            <Route path="/dashboard" element={<Dashboard />} /> 
-            
-            <Route path="/clients" element={<RoleGuard allowedRoles={CS_ROLES}><Clients /></RoleGuard>} />
-            <Route path="/projects" element={<RoleGuard allowedRoles={CS_DEV_ROLES}><Projects /></RoleGuard>} />
-            <Route path="/invoices" element={<RoleGuard allowedRoles={FINANCE_ROLES}><Invoices /></RoleGuard>} />
-            <Route path="/spk" element={<RoleGuard allowedRoles={FINANCE_ROLES}><SPK /></RoleGuard>} />
-            <Route path="/finance" element={<RoleGuard allowedRoles={FINANCE_ROLES}><Finance /></RoleGuard>} />
-            <Route path="/leads" element={<RoleGuard allowedRoles={CS_ROLES}><Leads /></RoleGuard>} />
-            <Route path="/packages" element={<RoleGuard allowedRoles={CS_ROLES}><Packages /></RoleGuard>} />
-            <Route path="/settings" element={<RoleGuard allowedRoles={ADMIN_ROLES}><Settings /></RoleGuard>} />
-            <Route path="/developers" element={<RoleGuard allowedRoles={DEV_MGMT_ROLES}><Developers /></RoleGuard>} />
-
-            {/* BARIS INI DINONAKTIFKAN SEMENTARA untuk menghentikan redirect 404 aplikasi */}
-            {/* <Route path="*" element={<NotFound />} /> */} 
+            <Route path="/auth" element={<AuthPage />} />
+            {/* Rute yang dilindungi */}
+            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/clients" element={<ProtectedRoute><RoleGuard allowedRoles={['admin', 'cs']}><Clients /></RoleGuard></ProtectedRoute>} />
+            <Route path="/projects" element={<ProtectedRoute><RoleGuard allowedRoles={['admin', 'cs', 'developer']}><Projects /></RoleGuard></ProtectedRoute>} />
+            <Route path="/invoices" element={<ProtectedRoute><RoleGuard allowedRoles={['admin', 'cs', 'finance']}><Invoices /></RoleGuard></ProtectedRoute>} />
+            <Route path="/finance" element={<ProtectedRoute><RoleGuard allowedRoles={['admin', 'finance']}><Finance /></RoleGuard></ProtectedRoute>} />
+            <Route path="/developers" element={<ProtectedRoute><RoleGuard allowedRoles={['admin', 'finance', 'developer']}><Developers /></RoleGuard></ProtectedRoute>} />
+            <Route path="/packages" element={<ProtectedRoute><RoleGuard allowedRoles={['admin']}><Packages /></RoleGuard></ProtectedRoute>} />
+            <Route path="/spk" element={<ProtectedRoute><RoleGuard allowedRoles={['admin', 'cs']}><SPK /></RoleGuard></ProtectedRoute>} />
+            <Route path="/leads" element={<ProtectedRoute><RoleGuard allowedRoles={['admin', 'cs']}><Leads /></RoleGuard></ProtectedRoute>} />
+            <Route path="/ads-report" element={<ProtectedRoute><RoleGuard allowedRoles={['admin', 'finance']}><AdsReport /></RoleGuard></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><RoleGuard allowedRoles={['admin']}><Settings /></RoleGuard></ProtectedRoute>} />
+            {/* Rute Not Found */}
+            <Route path="*" element={<NotFound />} />
           </Routes>
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+        </Router>
+        <Toaster />
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+}
 
 export default App;
