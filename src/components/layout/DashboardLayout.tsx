@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from './AppSidebar';
 import { Button } from '@/components/ui/button';
-import { Building2, LogOut } from 'lucide-react';
+import { Building2, LogOut, Sun, Moon } from 'lucide-react'; // [Diperbarui]
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +14,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Switch } from '@/components/ui/switch'; // [Tambahkan]
+import { useTheme } from 'next-themes'; // [Tambahkan]
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -22,6 +24,7 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
+  const { setTheme, resolvedTheme } = useTheme(); // [Tambahkan]
 
   useEffect(() => {
     if (!loading && !user) {
@@ -56,7 +59,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               
               <div className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-primary" />
-                <h1 className="text-lg font-semibold">ERP Website Agency</h1>
+                <h1 className="text-lg font-semibold">maswebsite.id ERP</h1>
               </div>
 
               <div className="ml-auto flex items-center gap-2">
@@ -78,6 +81,33 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                       </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    
+                    {/* NEW THEME TOGGLE ITEM */}
+                    <DropdownMenuLabel className="font-normal text-xs text-muted-foreground">Appearance</DropdownMenuLabel>
+                    <DropdownMenuItem 
+                        className="justify-between cursor-pointer"
+                        // Mencegah dropdown tertutup saat mengklik area item
+                        onSelect={(e) => e.preventDefault()} 
+                    >
+                         <div className="flex items-center space-x-2">
+                            {/* Menampilkan ikon bulan/matahari sesuai tema aktif */}
+                            {resolvedTheme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                            <span className="flex-1">Dark Mode</span>
+                        </div>
+                        <Switch 
+                            checked={resolvedTheme === 'dark'} 
+                            onCheckedChange={(checked) => {
+                                setTheme(checked ? 'dark' : 'light');
+                            }} 
+                            // Mencegah penutupan dropdown saat mengklik switch
+                            onClick={(e) => e.stopPropagation()} 
+                            id="theme-switch"
+                        />
+                    </DropdownMenuItem>
+                    {/* END NEW THEME TOGGLE ITEM */}
+
+                    <DropdownMenuSeparator />
+                    
                     <DropdownMenuItem onClick={() => navigate('/settings')}>
                       Settings
                     </DropdownMenuItem>
